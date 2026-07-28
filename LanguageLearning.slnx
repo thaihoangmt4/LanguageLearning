@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="LanguageLearning.Common/LanguageLearning.Common.csproj" />
+  <Project Path="LanguageLearning.WebApi/LanguageLearning.WebApi.csproj" />
+</Solution>

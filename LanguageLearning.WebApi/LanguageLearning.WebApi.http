@@ -1,0 +1,6 @@
+@LanguageLearning.WebApi_HostAddress = http://localhost:5009
+
+GET {{LanguageLearning.WebApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
