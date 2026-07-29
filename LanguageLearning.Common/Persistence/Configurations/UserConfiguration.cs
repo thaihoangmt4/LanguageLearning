@@ -29,6 +29,17 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
             .IsRequired()
             .HasMaxLength(256);
 
+        builder.Property(u => u.GoogleId)
+            .HasMaxLength(256);
+
+        builder.HasIndex(u => u.GoogleId)
+            .IsUnique();
+
+        builder.Property(u => u.Role)
+            .IsRequired()
+            .HasMaxLength(64)
+            .HasDefaultValue("User");
+
         builder.Property(u => u.IsActive)
             .IsRequired()
             .HasDefaultValue(true);

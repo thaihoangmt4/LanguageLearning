@@ -1,9 +1,12 @@
 using System.Text;
 using FluentValidation;
 using LanguageLearning.Common;
+using LanguageLearning.Common.Configuration;
 using LanguageLearning.Common.Constants;
+using LanguageLearning.Common.Persistence;
 using LanguageLearning.WebApi.Configuration;
 using LanguageLearning.WebApi.Middlewares;
+using LanguageLearning.WebApi.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -13,7 +16,6 @@ using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
-using LanguageLearning.Common.Persistence;
 
 namespace LanguageLearning.WebApi.Extensions;
 
@@ -31,7 +33,16 @@ public static class ServiceCollectionExtensions
         IConfiguration configuration,
         IHostEnvironment environment)
     {
-        services.AddCommon();
+        var tokenOptions = BuildTokenOptions(configuration);
+        var googleOptions = BuildGoogleOptions(configuration);
+
+        services.AddSingleton(tokenOptions);
+        services.AddSingleton(googleOptions);
+
+        services.AddSingleton<ITokenHasher, TokenHasher>();
+        services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
+        services.AddSingleton<IGoogleTokenVerifier, GoogleTokenVerifier>();
+        services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 
         services.AddPostgres(configuration);
         services.AddMediatR();
@@ -46,6 +57,40 @@ public static class ServiceCollectionExtensions
         services.AddProblemDetails();
 
         return services;
+    }
+
+    /// <summary>
+    /// Reads JWT token generation settings from configuration.
+    /// </summary>
+    private static TokenGenerationOptions BuildTokenOptions(IConfiguration configuration)
+    {
+        var jwtSettings = configuration
+            .GetSection(JwtSettings.SectionName)
+            .Get<JwtSettings>()!;
+
+        return new TokenGenerationOptions
+        {
+            Secret = jwtSettings.Secret,
+            Issuer = jwtSettings.Issuer,
+            Audience = jwtSettings.Audience,
+            AccessTokenExpirationMinutes = jwtSettings.ExpirationInMinutes,
+            RefreshTokenExpirationDays = jwtSettings.RefreshTokenExpirationInDays
+        };
+    }
+
+    /// <summary>
+    /// Reads Google OAuth settings from configuration.
+    /// </summary>
+    private static GoogleAuthOptions BuildGoogleOptions(IConfiguration configuration)
+    {
+        var googleSettings = configuration
+            .GetSection(GoogleSettings.SectionName)
+            .Get<GoogleSettings>()!;
+
+        return new GoogleAuthOptions
+        {
+            ClientId = googleSettings.ClientId
+        };
     }
 
     /// <summary>
@@ -71,7 +116,6 @@ public static class ServiceCollectionExtensions
         services.AddMediatR(cfg =>
         {
             cfg.RegisterServicesFromAssembly(typeof(Program).Assembly);
-            cfg.RegisterServicesFromAssembly(typeof(Common.DependencyInjection).Assembly);
         });
 
         return services;
@@ -83,7 +127,6 @@ public static class ServiceCollectionExtensions
     private static IServiceCollection AddFluentValidation(this IServiceCollection services)
     {
         services.AddValidatorsFromAssembly(typeof(Program).Assembly);
-        services.AddValidatorsFromAssembly(typeof(Common.DependencyInjection).Assembly);
 
         return services;
     }
