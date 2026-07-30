@@ -47,6 +47,7 @@ public static class ServiceCollectionExtensions
         services.AddPostgres(configuration);
         services.AddMediatR();
         services.AddFluentValidation();
+        services.AddFrontendCors(configuration);
         services.AddJwtAuthentication(configuration);
         services.AddApplicationAuthorization();
         services.AddHealthChecks(configuration);
@@ -55,6 +56,39 @@ public static class ServiceCollectionExtensions
 
         services.AddControllers();
         services.AddProblemDetails();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Configures CORS for the frontend origins defined in configuration.
+    /// </summary>
+    private static IServiceCollection AddFrontendCors(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        var corsSettings = configuration
+            .GetSection(CorsSettings.SectionName)
+            .Get<CorsSettings>()
+            ?? throw new InvalidOperationException(
+                $"Missing '{CorsSettings.SectionName}' configuration section.");
+
+        if (corsSettings.AllowedOrigins.Length == 0)
+        {
+            throw new InvalidOperationException(
+                $"At least one origin must be configured in '{CorsSettings.SectionName}:AllowedOrigins'.");
+        }
+
+        services.AddCors(options =>
+        {
+            options.AddPolicy(CorsSettings.FrontendPolicyName, policy =>
+            {
+                policy
+                    .WithOrigins(corsSettings.AllowedOrigins)
+                    .AllowAnyHeader()
+                    .AllowAnyMethod();
+            });
+        });
 
         return services;
     }

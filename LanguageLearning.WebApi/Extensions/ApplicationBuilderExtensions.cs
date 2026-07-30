@@ -1,5 +1,7 @@
 namespace LanguageLearning.WebApi.Extensions;
 
+using LanguageLearning.WebApi.Configuration;
+
 /// <summary>
 /// Extension methods for configuring the HTTP request pipeline.
 /// </summary>
@@ -22,6 +24,8 @@ public static class ApplicationBuilderExtensions
         });
 
         app.UseHttpsRedirection();
+
+        app.UseCors(CorsSettings.FrontendPolicyName);
 
         app.UseAuthentication();
         app.UseAuthorization();
