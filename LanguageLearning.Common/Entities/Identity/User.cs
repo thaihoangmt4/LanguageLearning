@@ -32,5 +32,7 @@ public sealed class User : BaseEntity, IAuditableEntity
 
     public DateTime? UpdatedAt { get; set; }
 
+    public UserProfile UserProfile { get; set; } = null!;
+
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
 }

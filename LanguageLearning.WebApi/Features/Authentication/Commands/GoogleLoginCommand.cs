@@ -97,7 +97,21 @@ public class GoogleLoginCommand : IRequest<Result<AuthResponse>>
                 IsActive = true
             };
 
+            var profile = new UserProfile
+            {
+                UserId = user.Id,
+                User = user,
+                DisplayName = payload.Name,
+                Username = null,
+                NativeLanguageCode = null,
+                TimeZoneId = null,
+                DailyGoalMinutes = 15
+            };
+
+            user.UserProfile = profile;
+
             _dbContext.Users.Add(user);
+            _dbContext.UserProfiles.Add(profile);
 
             return user;
         }
