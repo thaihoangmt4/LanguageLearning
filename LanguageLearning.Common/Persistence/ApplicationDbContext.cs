@@ -1,5 +1,6 @@
 using LanguageLearning.Common.Entities.Base;
 using LanguageLearning.Common.Entities.Identity;
+using LanguageLearning.Common.Entities.LearningCatalog;
 using Microsoft.EntityFrameworkCore;
 
 namespace LanguageLearning.Common.Persistence;
@@ -14,6 +15,14 @@ public sealed class ApplicationDbContext : DbContext
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     public DbSet<UserProfile> UserProfiles => Set<UserProfile>();
+
+    public DbSet<Course> Courses => Set<Course>();
+
+    public DbSet<Unit> Units => Set<Unit>();
+
+    public DbSet<Lesson> Lessons => Set<Lesson>();
+
+    public DbSet<LessonSection> LessonSections => Set<LessonSection>();
 
     public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
         : base(options)

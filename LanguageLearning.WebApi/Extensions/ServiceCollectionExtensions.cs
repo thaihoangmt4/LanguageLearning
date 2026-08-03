@@ -1,9 +1,11 @@
 using System.Text;
+using System.Text.Json.Serialization;
 using FluentValidation;
 using LanguageLearning.Common;
 using LanguageLearning.Common.Configuration;
 using LanguageLearning.Common.Constants;
 using LanguageLearning.Common.Persistence;
+using LanguageLearning.Common.Persistence.Seeders;
 using LanguageLearning.WebApi.Configuration;
 using LanguageLearning.WebApi.Middlewares;
 using LanguageLearning.WebApi.Services;
@@ -45,6 +47,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 
         services.AddPostgres(configuration);
+        services.AddScoped<LearningCatalogSeeder>();
         services.AddMediatR();
         services.AddFluentValidation();
         services.AddFrontendCors(configuration);
@@ -54,7 +57,9 @@ public static class ServiceCollectionExtensions
         services.AddSwagger();
         services.AddGlobalExceptionHandler();
 
-        services.AddControllers();
+        services.AddControllers()
+            .AddJsonOptions(options =>
+                options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
         services.AddProblemDetails();
 
         return services;
@@ -263,9 +268,9 @@ public static class ServiceCollectionExtensions
 
             options.AddSecurityDefinition("Bearer", securityScheme);
 
-            options.AddSecurityRequirement(doc => new Microsoft.OpenApi.OpenApiSecurityRequirement
+            options.AddSecurityRequirement(document => new Microsoft.OpenApi.OpenApiSecurityRequirement
             {
-                [new Microsoft.OpenApi.OpenApiSecuritySchemeReference("Bearer")] = new List<string>()
+                [new Microsoft.OpenApi.OpenApiSecuritySchemeReference("Bearer", document)] = new List<string>()
             });
         });
 
