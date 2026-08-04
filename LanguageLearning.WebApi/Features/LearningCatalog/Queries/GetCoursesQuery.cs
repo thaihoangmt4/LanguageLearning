@@ -1,5 +1,6 @@
 using LanguageLearning.Common.Persistence;
 using LanguageLearning.Common.Results;
+using LanguageLearning.Common.Enums;
 using LanguageLearning.WebApi.Features.LearningCatalog.DTOs;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -37,7 +38,7 @@ public sealed class GetCoursesQuery : IRequest<Result<GetCoursesResponse>>
                     CefrLevel = course.CefrLevel,
                     LessonCount = course.Units
                         .SelectMany(unit => unit.Lessons)
-                        .Count(lesson => lesson.IsPublished)
+                        .Count(lesson => lesson.Status == LessonStatus.Published)
                 })
                 .ToListAsync(cancellationToken);
 

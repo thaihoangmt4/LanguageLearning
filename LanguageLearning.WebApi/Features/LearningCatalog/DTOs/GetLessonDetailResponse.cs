@@ -19,7 +19,7 @@ public sealed record GetLessonDetailResponse
 
     public int EstimatedDurationMinutes { get; init; }
 
-    public LessonDifficulty DifficultyLevel { get; init; }
+    public DifficultyLevel DifficultyLevel { get; init; }
 
     public LessonCourseResponse Course { get; init; } = new();
 

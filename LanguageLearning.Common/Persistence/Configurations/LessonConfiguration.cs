@@ -1,4 +1,5 @@
 using LanguageLearning.Common.Entities.LearningCatalog;
+using LanguageLearning.Common.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
@@ -15,7 +16,7 @@ public sealed class LessonConfiguration : IEntityTypeConfiguration<Lesson>
         {
             tableBuilder.HasCheckConstraint(
                 "CK_lessons_DisplayOrder",
-                "\"DisplayOrder\" >= 0");
+                "\"DisplayOrder\" > 0");
             tableBuilder.HasCheckConstraint(
                 "CK_lessons_EstimatedDurationMinutes",
                 "\"EstimatedDurationMinutes\" > 0");
@@ -50,9 +51,12 @@ public sealed class LessonConfiguration : IEntityTypeConfiguration<Lesson>
         builder.Property(lesson => lesson.DisplayOrder)
             .IsRequired();
 
-        builder.Property(lesson => lesson.IsPublished)
+        builder.Property(lesson => lesson.Status)
             .IsRequired()
-            .HasDefaultValue(false);
+            .HasConversion<string>()
+            .HasMaxLength(20)
+            .HasDefaultValue(LessonStatus.Draft)
+            .HasSentinel((LessonStatus)0);
 
         builder.Property(lesson => lesson.CreatedAt)
             .IsRequired();
@@ -74,11 +78,14 @@ public sealed class LessonConfiguration : IEntityTypeConfiguration<Lesson>
         builder.HasIndex(lesson => new
         {
             lesson.UnitId,
-            lesson.IsPublished,
+            lesson.Status,
             lesson.DisplayOrder
         });
 
         builder.Navigation(lesson => lesson.LessonSections)
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
+
+        builder.Navigation(lesson => lesson.LearningSteps)
             .UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }

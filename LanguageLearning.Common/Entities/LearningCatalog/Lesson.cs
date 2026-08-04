@@ -9,6 +9,7 @@ namespace LanguageLearning.Common.Entities.LearningCatalog;
 public sealed class Lesson : BaseEntity, IAuditableEntity
 {
     private readonly List<LessonSection> _lessonSections = [];
+    private readonly List<LearningStep> _learningSteps = [];
 
     public Guid UnitId { get; set; }
 
@@ -24,15 +25,17 @@ public sealed class Lesson : BaseEntity, IAuditableEntity
 
     public int EstimatedDurationMinutes { get; set; }
 
-    public LessonDifficulty DifficultyLevel { get; set; }
+    public DifficultyLevel DifficultyLevel { get; set; }
 
     public int DisplayOrder { get; set; }
 
-    public bool IsPublished { get; set; }
+    public LessonStatus Status { get; set; }
 
     public DateTime CreatedAt { get; set; }
 
     public DateTime? UpdatedAt { get; set; }
 
     public IReadOnlyCollection<LessonSection> LessonSections => _lessonSections.AsReadOnly();
+
+    public IReadOnlyCollection<LearningStep> LearningSteps => _learningSteps.AsReadOnly();
 }

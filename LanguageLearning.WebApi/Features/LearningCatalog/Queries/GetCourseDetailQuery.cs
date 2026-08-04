@@ -1,5 +1,6 @@
 using LanguageLearning.Common.Persistence;
 using LanguageLearning.Common.Results;
+using LanguageLearning.Common.Enums;
 using LanguageLearning.WebApi.Features.LearningCatalog.DTOs;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -37,7 +38,7 @@ public sealed class GetCourseDetailQuery : IRequest<Result<GetCourseDetailRespon
                     Description = course.Description,
                     CefrLevel = course.CefrLevel,
                     Units = course.Units
-                        .Where(unit => unit.Lessons.Any(lesson => lesson.IsPublished))
+                        .Where(unit => unit.Lessons.Any(lesson => lesson.Status == LessonStatus.Published))
                         .OrderBy(unit => unit.DisplayOrder)
                         .Select(unit => new CourseUnitResponse
                         {
@@ -46,7 +47,7 @@ public sealed class GetCourseDetailQuery : IRequest<Result<GetCourseDetailRespon
                             Title = unit.Title,
                             Description = unit.Description,
                             Lessons = unit.Lessons
-                                .Where(lesson => lesson.IsPublished)
+                                .Where(lesson => lesson.Status == LessonStatus.Published)
                                 .OrderBy(lesson => lesson.DisplayOrder)
                                 .Select(lesson => new CourseLessonResponse
                                 {

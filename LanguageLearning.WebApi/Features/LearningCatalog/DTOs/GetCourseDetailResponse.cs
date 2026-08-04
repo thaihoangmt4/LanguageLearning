@@ -53,5 +53,5 @@ public sealed record CourseLessonResponse
 
     public int EstimatedDurationMinutes { get; init; }
 
-    public LessonDifficulty DifficultyLevel { get; init; }
+    public DifficultyLevel DifficultyLevel { get; init; }
 }

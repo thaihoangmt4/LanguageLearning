@@ -7,6 +7,7 @@ using LanguageLearning.Common.Constants;
 using LanguageLearning.Common.Persistence;
 using LanguageLearning.Common.Persistence.Seeders;
 using LanguageLearning.WebApi.Configuration;
+using LanguageLearning.WebApi.Behaviors;
 using LanguageLearning.WebApi.Middlewares;
 using LanguageLearning.WebApi.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -155,6 +156,7 @@ public static class ServiceCollectionExtensions
         services.AddMediatR(cfg =>
         {
             cfg.RegisterServicesFromAssembly(typeof(Program).Assembly);
+            cfg.AddOpenBehavior(typeof(ValidationBehavior<,>));
         });
 
         return services;

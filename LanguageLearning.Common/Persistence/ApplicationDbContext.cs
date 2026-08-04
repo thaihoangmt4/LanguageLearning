@@ -24,6 +24,14 @@ public sealed class ApplicationDbContext : DbContext
 
     public DbSet<LessonSection> LessonSections => Set<LessonSection>();
 
+    public DbSet<Vocabulary> Vocabularies => Set<Vocabulary>();
+
+    public DbSet<LearningStep> LearningSteps => Set<LearningStep>();
+
+    public DbSet<Question> Questions => Set<Question>();
+
+    public DbSet<QuestionOption> QuestionOptions => Set<QuestionOption>();
+
     public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
         : base(options)
     {

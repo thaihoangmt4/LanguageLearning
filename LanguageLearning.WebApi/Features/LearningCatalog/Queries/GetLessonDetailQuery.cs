@@ -1,5 +1,6 @@
 using LanguageLearning.Common.Persistence;
 using LanguageLearning.Common.Results;
+using LanguageLearning.Common.Enums;
 using LanguageLearning.WebApi.Features.LearningCatalog.DTOs;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -30,7 +31,7 @@ public sealed class GetLessonDetailQuery : IRequest<Result<GetLessonDetailRespon
                 .AsNoTracking()
                 .Where(lesson =>
                     lesson.Id == request.LessonId
-                    && lesson.IsPublished
+                    && lesson.Status == LessonStatus.Published
                     && lesson.Unit.Course.IsPublished)
                 .Select(lesson => new GetLessonDetailResponse
                 {
