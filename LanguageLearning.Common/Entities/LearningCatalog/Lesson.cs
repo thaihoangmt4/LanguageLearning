@@ -1,4 +1,5 @@
 using LanguageLearning.Common.Entities.Base;
+using LanguageLearning.Common.Entities.ExerciseEngine;
 using LanguageLearning.Common.Enums;
 
 namespace LanguageLearning.Common.Entities.LearningCatalog;
@@ -8,8 +9,7 @@ namespace LanguageLearning.Common.Entities.LearningCatalog;
 /// </summary>
 public sealed class Lesson : BaseEntity, IAuditableEntity
 {
-    private readonly List<LessonSection> _lessonSections = [];
-    private readonly List<LearningStep> _learningSteps = [];
+    private readonly List<Exercise> _exercises = [];
 
     public Guid UnitId { get; set; }
 
@@ -35,7 +35,5 @@ public sealed class Lesson : BaseEntity, IAuditableEntity
 
     public DateTime? UpdatedAt { get; set; }
 
-    public IReadOnlyCollection<LessonSection> LessonSections => _lessonSections.AsReadOnly();
-
-    public IReadOnlyCollection<LearningStep> LearningSteps => _learningSteps.AsReadOnly();
+    public IReadOnlyCollection<Exercise> Exercises => _exercises.AsReadOnly();
 }

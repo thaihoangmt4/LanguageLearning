@@ -54,17 +54,7 @@ public sealed class GetLessonDetailQuery : IRequest<Result<GetLessonDetailRespon
                         Id = lesson.Unit.Id,
                         Code = lesson.Unit.Code,
                         Title = lesson.Unit.Title
-                    },
-                    Sections = lesson.LessonSections
-                        .OrderBy(section => section.DisplayOrder)
-                        .Select(section => new LessonSectionResponse
-                        {
-                            Id = section.Id,
-                            SectionType = section.SectionType,
-                            Title = section.Title,
-                            IsRequired = section.IsRequired
-                        })
-                        .ToList()
+                    }
                 })
                 .FirstOrDefaultAsync(cancellationToken);
 

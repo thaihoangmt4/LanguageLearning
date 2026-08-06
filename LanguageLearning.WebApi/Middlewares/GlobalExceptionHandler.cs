@@ -104,7 +104,8 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
             Status = (int)status,
             Detail = detail,
             Instance = httpContext.Request.Path,
-            TraceId = httpContext.TraceIdentifier
+            TraceId = httpContext.TraceIdentifier,
+            Code = status == HttpStatusCode.BadRequest ? "validation.failed" : "request.failed"
         };
     }
 }

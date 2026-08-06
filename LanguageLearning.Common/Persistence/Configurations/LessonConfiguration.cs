@@ -82,10 +82,7 @@ public sealed class LessonConfiguration : IEntityTypeConfiguration<Lesson>
             lesson.DisplayOrder
         });
 
-        builder.Navigation(lesson => lesson.LessonSections)
-            .UsePropertyAccessMode(PropertyAccessMode.Field);
-
-        builder.Navigation(lesson => lesson.LearningSteps)
+        builder.Navigation(lesson => lesson.Exercises)
             .UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }

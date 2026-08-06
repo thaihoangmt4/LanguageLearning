@@ -1,29 +1,18 @@
 namespace LanguageLearning.WebApi.Extensions;
 
-using LanguageLearning.Common.Persistence.Seeders;
 using LanguageLearning.WebApi.Configuration;
+using LanguageLearning.WebApi.Persistence;
 
 /// <summary>
 /// Extension methods for configuring the HTTP request pipeline.
 /// </summary>
 public static class ApplicationBuilderExtensions
 {
-    /// <summary>
-    /// Seeds environment-specific development data before the application begins accepting requests.
-    /// </summary>
-    public static async Task SeedDevelopmentDataAsync(
-        this WebApplication app,
-        CancellationToken cancellationToken)
+    public static async Task SeedDevelopmentDataAsync(this WebApplication app, CancellationToken cancellationToken)
     {
-        if (!app.Environment.IsDevelopment())
-        {
-            return;
-        }
-
+        if (!app.Environment.IsDevelopment()) return;
         await using var scope = app.Services.CreateAsyncScope();
-        var seeder = scope.ServiceProvider.GetRequiredService<LearningCatalogSeeder>();
-
-        await seeder.SeedAsync(cancellationToken);
+        await scope.ServiceProvider.GetRequiredService<ExerciseEngineSeeder>().SeedAsync(cancellationToken);
     }
 
     /// <summary>

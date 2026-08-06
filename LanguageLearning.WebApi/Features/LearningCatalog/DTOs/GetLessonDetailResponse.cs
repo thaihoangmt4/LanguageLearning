@@ -24,8 +24,6 @@ public sealed record GetLessonDetailResponse
     public LessonCourseResponse Course { get; init; } = new();
 
     public LessonUnitResponse Unit { get; init; } = new();
-
-    public IReadOnlyCollection<LessonSectionResponse> Sections { get; init; } = [];
 }
 
 /// <summary>
@@ -57,13 +55,3 @@ public sealed record LessonUnitResponse
 /// <summary>
 /// An ordered section belonging to a lesson.
 /// </summary>
-public sealed record LessonSectionResponse
-{
-    public Guid Id { get; init; }
-
-    public LessonSectionType SectionType { get; init; }
-
-    public string Title { get; init; } = string.Empty;
-
-    public bool IsRequired { get; init; }
-}

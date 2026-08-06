@@ -1,4 +1,5 @@
 using LanguageLearning.Common.Entities.Base;
+using LanguageLearning.Common.Entities.ExerciseEngine;
 
 namespace LanguageLearning.Common.Entities.Identity;
 
@@ -35,4 +36,8 @@ public sealed class User : BaseEntity, IAuditableEntity
     public UserProfile UserProfile { get; set; } = null!;
 
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
+
+    public ICollection<LessonAttempt> LessonAttempts { get; set; } = [];
+
+    public ICollection<UserExerciseMistake> ExerciseMistakes { get; set; } = [];
 }

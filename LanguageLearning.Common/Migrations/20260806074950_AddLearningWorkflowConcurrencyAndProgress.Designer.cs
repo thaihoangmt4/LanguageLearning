@@ -3,6 +3,7 @@ using System;
 using LanguageLearning.Common.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace LanguageLearning.Common.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260806074950_AddLearningWorkflowConcurrencyAndProgress")]
+    partial class AddLearningWorkflowConcurrencyAndProgress
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -110,6 +113,9 @@ namespace LanguageLearning.Common.Migrations
                         .HasColumnType("character varying(30)")
                         .HasDefaultValue("NotEvaluated");
 
+                    b.Property<Guid>("ExerciseId")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("ExerciseVersion")
                         .HasColumnType("integer");
 
@@ -118,6 +124,9 @@ namespace LanguageLearning.Common.Migrations
                         .HasColumnType("character varying(4000)");
 
                     b.Property<Guid>("LessonAttemptExerciseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("LessonAttemptId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("ResultJson")
@@ -135,10 +144,14 @@ namespace LanguageLearning.Common.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("SubmissionId")
+                    b.HasIndex("ExerciseId");
+
+                    b.HasIndex("LessonAttemptExerciseId");
+
+                    b.HasIndex("LessonAttemptId", "SubmissionId")
                         .IsUnique();
 
-                    b.HasIndex("LessonAttemptExerciseId", "AttemptNumber")
+                    b.HasIndex("LessonAttemptId", "ExerciseId", "AttemptNumber")
                         .IsUnique();
 
                     b.ToTable("exercise_attempts", null, t =>
@@ -165,6 +178,9 @@ namespace LanguageLearning.Common.Migrations
 
                     b.Property<int>("CorrectCount")
                         .HasColumnType("integer");
+
+                    b.Property<Guid?>("CurrentActivityId")
+                        .HasColumnType("uuid");
 
                     b.Property<int>("IncorrectCount")
                         .HasColumnType("integer");
@@ -193,6 +209,8 @@ namespace LanguageLearning.Common.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("CurrentActivityId");
 
                     b.HasIndex("LessonId");
 
@@ -513,6 +531,56 @@ namespace LanguageLearning.Common.Migrations
                         });
                 });
 
+            modelBuilder.Entity("LanguageLearning.Common.Entities.LearningCatalog.LearningStep", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("InstructionText")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("InstructionTitle")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("IsRequired")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("LessonId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("StepType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("VocabularyId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("VocabularyId");
+
+                    b.HasIndex("LessonId", "DisplayOrder")
+                        .IsUnique();
+
+                    b.ToTable("learning_steps", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_learning_steps_DisplayOrder", "\"DisplayOrder\" > 0");
+                        });
+                });
+
             modelBuilder.Entity("LanguageLearning.Common.Entities.LearningCatalog.Lesson", b =>
                 {
                     b.Property<Guid>("Id")
@@ -579,6 +647,153 @@ namespace LanguageLearning.Common.Migrations
                             t.HasCheckConstraint("CK_lessons_DisplayOrder", "\"DisplayOrder\" > 0");
 
                             t.HasCheckConstraint("CK_lessons_EstimatedDurationMinutes", "\"EstimatedDurationMinutes\" > 0");
+                        });
+                });
+
+            modelBuilder.Entity("LanguageLearning.Common.Entities.LearningCatalog.LessonSection", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsRequired")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("LessonId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SectionType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LessonId", "DisplayOrder")
+                        .IsUnique();
+
+                    b.ToTable("lesson_sections", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_lesson_sections_DisplayOrder", "\"DisplayOrder\" >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("LanguageLearning.Common.Entities.LearningCatalog.Question", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Explanation")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<bool>("IsCaseSensitive")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("LearningStepId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Prompt")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("PromptAudioUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("PromptImageUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<string>("QuestionType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid?>("TargetVocabularyId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TextAnswer")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LearningStepId")
+                        .IsUnique();
+
+                    b.HasIndex("TargetVocabularyId");
+
+                    b.ToTable("questions", (string)null);
+                });
+
+            modelBuilder.Entity("LanguageLearning.Common.Entities.LearningCatalog.QuestionOption", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AccessibilityText")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("AudioUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ImageUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<bool>("IsCorrect")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("QuestionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Text")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("QuestionId", "DisplayOrder")
+                        .IsUnique();
+
+                    b.ToTable("question_options", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_question_options_DisplayOrder", "\"DisplayOrder\" > 0");
                         });
                 });
 
@@ -702,17 +917,38 @@ namespace LanguageLearning.Common.Migrations
 
             modelBuilder.Entity("LanguageLearning.Common.Entities.ExerciseEngine.ExerciseAttempt", b =>
                 {
+                    b.HasOne("LanguageLearning.Common.Entities.ExerciseEngine.Exercise", "Exercise")
+                        .WithMany("ExerciseAttempts")
+                        .HasForeignKey("ExerciseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("LanguageLearning.Common.Entities.ExerciseEngine.LessonAttemptExercise", "LessonAttemptExercise")
                         .WithMany("ExerciseAttempts")
                         .HasForeignKey("LessonAttemptExerciseId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("LanguageLearning.Common.Entities.ExerciseEngine.LessonAttempt", "LessonAttempt")
+                        .WithMany("ExerciseAttempts")
+                        .HasForeignKey("LessonAttemptId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Exercise");
+
+                    b.Navigation("LessonAttempt");
+
                     b.Navigation("LessonAttemptExercise");
                 });
 
             modelBuilder.Entity("LanguageLearning.Common.Entities.ExerciseEngine.LessonAttempt", b =>
                 {
+                    b.HasOne("LanguageLearning.Common.Entities.ExerciseEngine.LessonAttemptExercise", "CurrentActivity")
+                        .WithMany()
+                        .HasForeignKey("CurrentActivityId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
                     b.HasOne("LanguageLearning.Common.Entities.LearningCatalog.Lesson", "Lesson")
                         .WithMany()
                         .HasForeignKey("LessonId")
@@ -724,6 +960,8 @@ namespace LanguageLearning.Common.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("CurrentActivity");
 
                     b.Navigation("Lesson");
 
@@ -805,6 +1043,24 @@ namespace LanguageLearning.Common.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("LanguageLearning.Common.Entities.LearningCatalog.LearningStep", b =>
+                {
+                    b.HasOne("LanguageLearning.Common.Entities.LearningCatalog.Lesson", "Lesson")
+                        .WithMany("LearningSteps")
+                        .HasForeignKey("LessonId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("LanguageLearning.Common.Entities.LearningCatalog.Vocabulary", "Vocabulary")
+                        .WithMany()
+                        .HasForeignKey("VocabularyId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Lesson");
+
+                    b.Navigation("Vocabulary");
+                });
+
             modelBuilder.Entity("LanguageLearning.Common.Entities.LearningCatalog.Lesson", b =>
                 {
                     b.HasOne("LanguageLearning.Common.Entities.LearningCatalog.Unit", "Unit")
@@ -814,6 +1070,46 @@ namespace LanguageLearning.Common.Migrations
                         .IsRequired();
 
                     b.Navigation("Unit");
+                });
+
+            modelBuilder.Entity("LanguageLearning.Common.Entities.LearningCatalog.LessonSection", b =>
+                {
+                    b.HasOne("LanguageLearning.Common.Entities.LearningCatalog.Lesson", "Lesson")
+                        .WithMany("LessonSections")
+                        .HasForeignKey("LessonId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Lesson");
+                });
+
+            modelBuilder.Entity("LanguageLearning.Common.Entities.LearningCatalog.Question", b =>
+                {
+                    b.HasOne("LanguageLearning.Common.Entities.LearningCatalog.LearningStep", "LearningStep")
+                        .WithOne("Question")
+                        .HasForeignKey("LanguageLearning.Common.Entities.LearningCatalog.Question", "LearningStepId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("LanguageLearning.Common.Entities.LearningCatalog.Vocabulary", "TargetVocabulary")
+                        .WithMany()
+                        .HasForeignKey("TargetVocabularyId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("LearningStep");
+
+                    b.Navigation("TargetVocabulary");
+                });
+
+            modelBuilder.Entity("LanguageLearning.Common.Entities.LearningCatalog.QuestionOption", b =>
+                {
+                    b.HasOne("LanguageLearning.Common.Entities.LearningCatalog.Question", "Question")
+                        .WithMany("Options")
+                        .HasForeignKey("QuestionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Question");
                 });
 
             modelBuilder.Entity("LanguageLearning.Common.Entities.LearningCatalog.Unit", b =>
@@ -829,6 +1125,8 @@ namespace LanguageLearning.Common.Migrations
 
             modelBuilder.Entity("LanguageLearning.Common.Entities.ExerciseEngine.Exercise", b =>
                 {
+                    b.Navigation("ExerciseAttempts");
+
                     b.Navigation("LessonAttemptExercises");
 
                     b.Navigation("UserExerciseMistakes");
@@ -837,6 +1135,8 @@ namespace LanguageLearning.Common.Migrations
             modelBuilder.Entity("LanguageLearning.Common.Entities.ExerciseEngine.LessonAttempt", b =>
                 {
                     b.Navigation("Activities");
+
+                    b.Navigation("ExerciseAttempts");
                 });
 
             modelBuilder.Entity("LanguageLearning.Common.Entities.ExerciseEngine.LessonAttemptExercise", b =>
@@ -866,9 +1166,23 @@ namespace LanguageLearning.Common.Migrations
                     b.Navigation("Units");
                 });
 
+            modelBuilder.Entity("LanguageLearning.Common.Entities.LearningCatalog.LearningStep", b =>
+                {
+                    b.Navigation("Question");
+                });
+
             modelBuilder.Entity("LanguageLearning.Common.Entities.LearningCatalog.Lesson", b =>
                 {
                     b.Navigation("Exercises");
+
+                    b.Navigation("LearningSteps");
+
+                    b.Navigation("LessonSections");
+                });
+
+            modelBuilder.Entity("LanguageLearning.Common.Entities.LearningCatalog.Question", b =>
+                {
+                    b.Navigation("Options");
                 });
 
             modelBuilder.Entity("LanguageLearning.Common.Entities.LearningCatalog.Unit", b =>

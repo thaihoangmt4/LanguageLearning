@@ -5,11 +5,17 @@ using LanguageLearning.Common;
 using LanguageLearning.Common.Configuration;
 using LanguageLearning.Common.Constants;
 using LanguageLearning.Common.Persistence;
-using LanguageLearning.Common.Persistence.Seeders;
+using LanguageLearning.Common.ExerciseEngine;
+using LanguageLearning.Common.ExerciseEngine.Evaluation;
+using LanguageLearning.Common.ExerciseEngine.PublicContent;
+using LanguageLearning.Common.ExerciseEngine.Serialization;
+using LanguageLearning.Common.ExerciseEngine.Validation;
 using LanguageLearning.WebApi.Configuration;
 using LanguageLearning.WebApi.Behaviors;
 using LanguageLearning.WebApi.Middlewares;
 using LanguageLearning.WebApi.Services;
+using LanguageLearning.WebApi.Persistence;
+using LanguageLearning.WebApi.Features.ExerciseEngine;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -46,9 +52,15 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
         services.AddSingleton<IGoogleTokenVerifier, GoogleTokenVerifier>();
         services.AddScoped<IRefreshTokenService, RefreshTokenService>();
+        services.AddHttpContextAccessor();
+        services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
+        services.AddScoped<ILearningPathResolver, SequentialLearningPathResolver>();
+        services.AddScoped<ILearningSessionService, LearningSessionService>();
+        services.AddScoped<IExerciseSubmissionService, ExerciseSubmissionService>();
+        services.AddScoped<ExerciseEngineSeeder>();
 
         services.AddPostgres(configuration);
-        services.AddScoped<LearningCatalogSeeder>();
+        services.AddExerciseEngine();
         services.AddMediatR();
         services.AddFluentValidation();
         services.AddFrontendCors(configuration);
@@ -59,9 +71,55 @@ public static class ServiceCollectionExtensions
         services.AddGlobalExceptionHandler();
 
         services.AddControllers()
+            .ConfigureApplicationPartManager(manager =>
+                manager.FeatureProviders.Add(new DevelopmentControllerFeatureProvider(environment)))
             .AddJsonOptions(options =>
                 options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
         services.AddProblemDetails();
+
+        return services;
+    }
+
+    private static IServiceCollection AddExerciseEngine(this IServiceCollection services)
+    {
+        services.AddSingleton<IExerciseContentSerializer, ExerciseContentSerializer>();
+        services.AddSingleton<IExerciseAnswerSerializer, ExerciseAnswerSerializer>();
+
+        services.AddSingleton<IExerciseDefinitionValidator, MultipleChoiceDefinitionValidator>();
+        services.AddSingleton<IExerciseDefinitionValidator, ImageMatchingDefinitionValidator>();
+        services.AddSingleton<IExerciseDefinitionValidator, AudioMatchingDefinitionValidator>();
+        services.AddSingleton<IExerciseDefinitionValidator, TypingDefinitionValidator>();
+        services.AddSingleton<IExerciseDefinitionValidator, SentenceOrderingDefinitionValidator>();
+        services.AddSingleton<IExerciseDefinitionValidator, CategorizationDefinitionValidator>();
+        services.AddSingleton<IExerciseDefinitionValidator, SpeakingDefinitionValidator>();
+        services.AddSingleton<IExerciseDefinitionValidatorResolver, ExerciseDefinitionValidatorResolver>();
+
+        services.AddSingleton<IExerciseAnswerValidator, MultipleChoiceAnswerValidator>();
+        services.AddSingleton<IExerciseAnswerValidator, ImageMatchingAnswerValidator>();
+        services.AddSingleton<IExerciseAnswerValidator, AudioMatchingAnswerValidator>();
+        services.AddSingleton<IExerciseAnswerValidator, TypingAnswerValidator>();
+        services.AddSingleton<IExerciseAnswerValidator, SentenceOrderingAnswerValidator>();
+        services.AddSingleton<IExerciseAnswerValidator, CategorizationAnswerValidator>();
+        services.AddSingleton<IExerciseAnswerValidator, SpeakingAnswerValidator>();
+        services.AddSingleton<IExerciseAnswerValidatorResolver, ExerciseAnswerValidatorResolver>();
+
+        services.AddSingleton<IExercisePublicContentMappingStrategy, MultipleChoicePublicMapper>();
+        services.AddSingleton<IExercisePublicContentMappingStrategy, ImageMatchingPublicMapper>();
+        services.AddSingleton<IExercisePublicContentMappingStrategy, AudioMatchingPublicMapper>();
+        services.AddSingleton<IExercisePublicContentMappingStrategy, TypingPublicMapper>();
+        services.AddSingleton<IExercisePublicContentMappingStrategy, SentenceOrderingPublicMapper>();
+        services.AddSingleton<IExercisePublicContentMappingStrategy, CategorizationPublicMapper>();
+        services.AddSingleton<IExercisePublicContentMappingStrategy, SpeakingPublicMapper>();
+        services.AddSingleton<IExercisePublicContentMapper, ExercisePublicContentMapper>();
+
+        services.AddSingleton<IExerciseEvaluationStrategy, MultipleChoiceEvaluator>();
+        services.AddSingleton<IExerciseEvaluationStrategy, ImageMatchingEvaluator>();
+        services.AddSingleton<IExerciseEvaluationStrategy, AudioMatchingEvaluator>();
+        services.AddSingleton<IExerciseEvaluationStrategy, TypingEvaluator>();
+        services.AddSingleton<IExerciseEvaluationStrategy, SentenceOrderingEvaluator>();
+        services.AddSingleton<IExerciseEvaluationStrategy, CategorizationEvaluator>();
+        services.AddSingleton<IExerciseEvaluationStrategy, SpeakingEvaluator>();
+        services.AddSingleton<IExerciseEvaluatorResolver, ExerciseEvaluatorResolver>();
 
         return services;
     }
