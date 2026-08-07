@@ -16,6 +16,8 @@ using LanguageLearning.WebApi.Middlewares;
 using LanguageLearning.WebApi.Services;
 using LanguageLearning.WebApi.Persistence;
 using LanguageLearning.WebApi.Features.ExerciseEngine;
+using LanguageLearning.WebApi.Features.ExerciseGeneration;
+using LanguageLearning.WebApi.Infrastructure.DeepSeek;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -45,10 +47,13 @@ public static class ServiceCollectionExtensions
         var tokenOptions = BuildTokenOptions(configuration);
         var googleOptions = BuildGoogleOptions(configuration);
         var learningOptions = BuildLearningOptions(configuration);
+        var exerciseGenerationOptions = BuildExerciseGenerationOptions(configuration);
+        var deepSeekOptions = BuildDeepSeekOptions(configuration);
 
         services.AddSingleton(tokenOptions);
         services.AddSingleton(googleOptions);
         services.AddSingleton(learningOptions);
+        services.AddSingleton(exerciseGenerationOptions);
 
         services.AddSingleton<ITokenHasher, TokenHasher>();
         services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
@@ -61,6 +66,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ILearningSessionService, LearningSessionService>();
         services.AddScoped<IExerciseSubmissionService, ExerciseSubmissionService>();
         services.AddScoped<ExerciseEngineSeeder>();
+        services.AddDeepSeekExerciseGeneration(deepSeekOptions);
+        services.AddHostedService<ExerciseGenerationBackgroundService>();
 
         services.AddPostgres(configuration);
         services.AddExerciseEngine();
@@ -200,6 +207,22 @@ public static class ServiceCollectionExtensions
             ?? throw new InvalidOperationException($"Missing '{LearningOptions.SectionName}' configuration section.");
         if (string.IsNullOrWhiteSpace(options.DefaultCourseCode))
             throw new InvalidOperationException($"Missing '{LearningOptions.SectionName}:DefaultCourseCode' configuration value.");
+        return options;
+    }
+
+    private static ExerciseGenerationOptions BuildExerciseGenerationOptions(IConfiguration configuration)
+    {
+        var options = configuration.GetSection(ExerciseGenerationOptions.SectionName)
+            .Get<ExerciseGenerationOptions>() ?? new ExerciseGenerationOptions();
+        options.Validate();
+        return options;
+    }
+
+    private static DeepSeekOptions BuildDeepSeekOptions(IConfiguration configuration)
+    {
+        var options = configuration.GetSection(DeepSeekOptions.SectionName).Get<DeepSeekOptions>()
+            ?? new DeepSeekOptions();
+        options.Validate();
         return options;
     }
 

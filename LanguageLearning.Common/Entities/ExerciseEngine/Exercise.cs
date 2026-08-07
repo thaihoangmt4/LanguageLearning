@@ -14,6 +14,7 @@ public sealed class Exercise : BaseEntity, IAuditableEntity
     public DifficultyLevel Difficulty { get; set; }
     public int DisplayOrder { get; set; }
     public string ContentJson { get; set; } = "{}";
+    public string? ContentHash { get; set; }
     public int Version { get; set; } = 1;
     public bool IsRequired { get; set; }
     public bool IsActive { get; set; } = true;

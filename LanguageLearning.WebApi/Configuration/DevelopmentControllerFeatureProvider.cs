@@ -11,5 +11,7 @@ public sealed class DevelopmentControllerFeatureProvider(IHostEnvironment enviro
         IsAvailableInEnvironment(typeInfo.AsType(), environment);
 
     public static bool IsAvailableInEnvironment(Type controllerType, IHostEnvironment hostEnvironment) =>
-        hostEnvironment.IsDevelopment() || controllerType != typeof(TestLearningProgressController);
+        hostEnvironment.IsDevelopment() ||
+        (controllerType != typeof(TestLearningProgressController) &&
+         controllerType != typeof(TestExerciseGenerationController));
 }
