@@ -13,6 +13,7 @@ public sealed class LessonAttempt : BaseEntity
     public Lesson Lesson { get; set; } = null!;
     public LessonAttemptStatus Status { get; set; } = LessonAttemptStatus.InProgress;
     public DateTime StartedAt { get; set; }
+    public DateTime? LastAccessedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public decimal TotalScore { get; set; }
     public int CorrectCount { get; set; }

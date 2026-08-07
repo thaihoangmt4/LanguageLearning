@@ -44,9 +44,11 @@ public static class ServiceCollectionExtensions
     {
         var tokenOptions = BuildTokenOptions(configuration);
         var googleOptions = BuildGoogleOptions(configuration);
+        var learningOptions = BuildLearningOptions(configuration);
 
         services.AddSingleton(tokenOptions);
         services.AddSingleton(googleOptions);
+        services.AddSingleton(learningOptions);
 
         services.AddSingleton<ITokenHasher, TokenHasher>();
         services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
@@ -55,6 +57,7 @@ public static class ServiceCollectionExtensions
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
         services.AddScoped<ILearningPathResolver, SequentialLearningPathResolver>();
+        services.AddScoped<IDefaultCourseResolver, DefaultCourseResolver>();
         services.AddScoped<ILearningSessionService, LearningSessionService>();
         services.AddScoped<IExerciseSubmissionService, ExerciseSubmissionService>();
         services.AddScoped<ExerciseEngineSeeder>();
@@ -189,6 +192,15 @@ public static class ServiceCollectionExtensions
         {
             ClientId = googleSettings.ClientId
         };
+    }
+
+    private static LearningOptions BuildLearningOptions(IConfiguration configuration)
+    {
+        var options = configuration.GetSection(LearningOptions.SectionName).Get<LearningOptions>()
+            ?? throw new InvalidOperationException($"Missing '{LearningOptions.SectionName}' configuration section.");
+        if (string.IsNullOrWhiteSpace(options.DefaultCourseCode))
+            throw new InvalidOperationException($"Missing '{LearningOptions.SectionName}:DefaultCourseCode' configuration value.");
+        return options;
     }
 
     /// <summary>

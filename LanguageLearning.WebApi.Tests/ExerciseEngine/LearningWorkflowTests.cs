@@ -54,6 +54,25 @@ public sealed class LearningWorkflowTests
     }
 
     [Fact]
+    public async Task Path_OrdersUnitsBeforeLessons()
+    {
+        await using var db = Db();
+        var data = await SeedCatalogAsync(db, 1);
+        var course = data.Lessons[0].Unit.Course;
+        data.Lessons[0].Unit.DisplayOrder = 2;
+        var firstUnit = new Unit { Course = course, Code = Guid.NewGuid().ToString(), Title = "First Unit", DisplayOrder = 1 };
+        var firstLesson = new Lesson { Unit = firstUnit, Code = Guid.NewGuid().ToString(), Title = "First Lesson",
+            DisplayOrder = 5, Status = LessonStatus.Published, DifficultyLevel = DifficultyLevel.Beginner, EstimatedDurationMinutes = 10 };
+        db.AddRange(firstUnit, firstLesson, Exercise(firstLesson, 1));
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var result = await Resolver(db, data.User.Id).ResolveAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(LearningPathState.StartNextLesson, result.Value.State);
+        Assert.Equal(firstLesson.Id, result.Value.LessonId);
+    }
+
+    [Fact]
     public async Task Path_RespectsCourseDisplayOrder()
     {
         await using var db = Db();
@@ -61,6 +80,9 @@ public sealed class LearningWorkflowTests
         var earlier = await SeedCatalogAsync(db, 1);
         later.Lessons[0].Unit.Course.DisplayOrder = 2;
         earlier.Lessons[0].Unit.Course.DisplayOrder = 1;
+        var assignment = await db.UserCourseAssignments.SingleAsync(x => x.UserId == later.User.Id, TestContext.Current.CancellationToken);
+        assignment.Course = earlier.Lessons[0].Unit.Course;
+        assignment.CourseId = earlier.Lessons[0].Unit.Course.Id;
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var result = await Resolver(db, later.User.Id).ResolveAsync(TestContext.Current.CancellationToken);
@@ -72,8 +94,8 @@ public sealed class LearningWorkflowTests
     {
         await using var empty = Db();
         var userId = Guid.NewGuid();
-        Assert.Equal(ExerciseWorkflowErrors.NoPublishedContent,
-            (await Resolver(empty, userId).ResolveAsync(TestContext.Current.CancellationToken)).Error);
+        Assert.Equal(LearningPathState.NoActiveAssignment,
+            (await Resolver(empty, userId).ResolveAsync(TestContext.Current.CancellationToken)).Value.State);
 
         await using var completed = Db();
         var data = await SeedCatalogAsync(completed, 1);
@@ -86,8 +108,8 @@ public sealed class LearningWorkflowTests
             CompletedAt = DateTime.UtcNow
         });
         await completed.SaveChangesAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(ExerciseWorkflowErrors.LearningPathCompleted,
-            (await Resolver(completed, data.User.Id).ResolveAsync(TestContext.Current.CancellationToken)).Error);
+        Assert.Equal(LearningPathState.CourseCompleted,
+            (await Resolver(completed, data.User.Id).ResolveAsync(TestContext.Current.CancellationToken)).Value.State);
     }
 
     [Fact]
@@ -140,12 +162,15 @@ public sealed class LearningWorkflowTests
     }
 
     [Fact]
-    public void Model_HasOneInProgressAttemptPerUserPartialUniqueIndex()
+    public void Model_HasOneInProgressAttemptPerUserAndLessonPartialUniqueIndex()
     {
         using var db = Db();
         var index = db.Model.FindEntityType(typeof(LessonAttempt))!.GetIndexes()
-            .Single(x => x.GetDatabaseName() == "IX_lesson_attempts_UserId_InProgress");
+            .Single(x => x.GetDatabaseName() == "IX_lesson_attempts_UserId_LessonId_InProgress");
         Assert.True(index.IsUnique);
+        Assert.Equal(
+            [nameof(LessonAttempt.UserId), nameof(LessonAttempt.LessonId)],
+            index.Properties.Select(x => x.Name));
         Assert.Equal("\"Status\" = 'InProgress'", index.GetFilter());
     }
 
@@ -162,10 +187,14 @@ public sealed class LearningWorkflowTests
         Assert.Equal(LearningSessionMode.Resumed, resumed.Value.Mode);
         Assert.Equal(started.Value.LessonAttemptId, resumed.Value.LessonAttemptId);
         Assert.Equal(1, await db.LessonAttempts.CountAsync(TestContext.Current.CancellationToken));
+        var assignment = await db.UserCourseAssignments.SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(UserCourseAssignmentStatus.InProgress, assignment.Status);
+        Assert.NotNull(assignment.StartedAt);
+        Assert.NotNull(assignment.LastAccessedAt);
     }
 
     [Fact]
-    public async Task Submission_TracksRetriesMistakesBestScoreProgressAndIdempotency()
+    public async Task Submission_IsIdempotentAndRejectsCompletedActivityRetry()
     {
         await using var db = Db();
         var setup = await SeedAttemptAsync(db, ExerciseType.MultipleChoice, activityCount: 2);
@@ -184,18 +213,16 @@ public sealed class LearningWorkflowTests
 
         var second = await service.SubmitAsync(Request(setup, Guid.NewGuid(), wrong), TestContext.Current.CancellationToken);
         var third = await service.SubmitAsync(Request(setup, Guid.NewGuid(), JsonSerializer.Serialize(new MultipleChoiceAnswer(setup.CorrectOptionId))), TestContext.Current.CancellationToken);
-        Assert.Equal(2, second.Value.AttemptNumber);
-        Assert.Equal(3, third.Value.AttemptNumber);
-        Assert.Equal(1, third.Value.CompletedActivityCount);
-        Assert.Equal(100m, third.Value.Evaluation.Score);
+        Assert.Equal(ExerciseWorkflowErrors.ExerciseNotCurrent, second.Error);
+        Assert.Equal(ExerciseWorkflowErrors.ExerciseNotCurrent, third.Error);
 
         var mistake = await db.UserExerciseMistakes.SingleAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(2, mistake.FailureCount);
+        Assert.Equal(1, mistake.FailureCount);
         Assert.Equal(UserExerciseMistakeStatus.Pending, mistake.Status);
         var attempt = await db.LessonAttempts.SingleAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(100m, attempt.TotalScore);
-        Assert.Equal(1, attempt.CorrectCount);
-        Assert.Equal(0, attempt.IncorrectCount);
+        Assert.Equal(0m, attempt.TotalScore);
+        Assert.Equal(0, attempt.CorrectCount);
+        Assert.Equal(1, attempt.IncorrectCount);
     }
 
     [Fact]
@@ -224,6 +251,9 @@ public sealed class LearningWorkflowTests
         Assert.Equal(UserExerciseMistakeStatus.Resolved, mistake.Status);
         Assert.Equal(1, mistake.SuccessfulReviewCount);
         Assert.NotNull(mistake.ResolvedAt);
+        var assignment = await db.UserCourseAssignments.SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(UserCourseAssignmentStatus.Completed, assignment.Status);
+        Assert.NotNull(assignment.CompletedAt);
     }
 
     [Fact]
@@ -280,7 +310,7 @@ public sealed class LearningWorkflowTests
         IExerciseEvaluationStrategy[] evaluators = [new MultipleChoiceEvaluator(), new SpeakingEvaluator()];
         return new(db, new FakeCurrentUser(userId), new ExerciseContentSerializer(), new ExerciseAnswerSerializer(),
             new ExerciseDefinitionValidatorResolver(definitions), new ExerciseAnswerValidatorResolver(answers),
-            new ExerciseEvaluatorResolver(evaluators), NullLogger<ExerciseSubmissionService>.Instance);
+            new ExerciseEvaluatorResolver(evaluators), Resolver(db, userId), NullLogger<ExerciseSubmissionService>.Instance);
     }
 
     private static ExerciseSubmission Request(AttemptSetup setup, Guid submissionId, string json) =>
@@ -345,6 +375,13 @@ public sealed class LearningWorkflowTests
             lessons.Add(lesson); exercises.Add(exercise); db.AddRange(lesson, exercise);
         }
         db.AddRange(user, course, unit);
+        db.Add(new UserCourseAssignment
+        {
+            User = user,
+            Course = course,
+            Status = UserCourseAssignmentStatus.Assigned,
+            AssignedAt = DateTime.UtcNow
+        });
         await db.SaveChangesAsync();
         return new(user, lessons, exercises);
     }

@@ -5,7 +5,20 @@ namespace LanguageLearning.WebApi.Features.ExerciseEngine;
 
 public enum LearningSessionMode { Started = 1, Resumed = 2 }
 
-public sealed record LearningPathResolution(Guid? LessonAttemptId, Guid LessonId, bool IsResume);
+public enum LearningPathState { Resume = 1, StartNextLesson = 2, CourseCompleted = 3, NoActiveAssignment = 4 }
+public sealed record LearningPathResolution(
+    LearningPathState State,
+    Guid? AssignmentId,
+    Guid? CourseId,
+    Guid? LessonAttemptId,
+    Guid? LessonId,
+    Guid? NextActivityId,
+    string? LessonTitle,
+    string? UnitTitle,
+    int? EstimatedDurationMinutes)
+{
+    public bool IsResume => State == LearningPathState.Resume;
+}
 public sealed record LearningSessionResult(Guid LessonAttemptId, Guid LessonId, LearningSessionMode Mode, LessonAttemptStatus Status);
 public sealed record ExerciseSubmission(Guid LessonAttemptId, Guid LessonAttemptExerciseId,
     int ExerciseVersion, Guid SubmissionId, string AnswerJson);

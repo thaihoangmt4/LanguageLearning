@@ -64,7 +64,7 @@ public sealed class LearningSessionsController(IMediator mediator) : ControllerB
                 ExerciseWorkflowErrors.LessonAttemptExerciseNotFound or ExerciseWorkflowErrors.ExerciseNotPartOfAttempt => StatusCodes.Status404NotFound,
             ExerciseWorkflowErrors.LessonAttemptCompleted or ExerciseWorkflowErrors.ExerciseInactive or
                 ExerciseWorkflowErrors.ExerciseVersionMismatch or ExerciseWorkflowErrors.SubmissionPayloadMismatch or
-                ExerciseWorkflowErrors.ActiveLessonAttemptConflict => StatusCodes.Status409Conflict,
+                ExerciseWorkflowErrors.ExerciseNotCurrent or ExerciseWorkflowErrors.ActiveLessonAttemptConflict => StatusCodes.Status409Conflict,
             ExerciseEngineErrors.AnswerDeserializationFailed or ExerciseEngineErrors.InvalidAnswer => StatusCodes.Status400BadRequest,
             ExerciseWorkflowErrors.CurrentUserUnavailable => StatusCodes.Status401Unauthorized,
             _ => StatusCodes.Status500InternalServerError

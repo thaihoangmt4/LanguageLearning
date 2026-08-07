@@ -4,9 +4,11 @@ using LanguageLearning.Common.Entities.Identity;
 using LanguageLearning.Common.Entities.LearningCatalog;
 using LanguageLearning.Common.Enums;
 using LanguageLearning.Common.Persistence;
+using LanguageLearning.Common.Configuration;
 using LanguageLearning.WebApi.Configuration;
 using LanguageLearning.WebApi.Controllers;
 using LanguageLearning.WebApi.Features.ExerciseEngine.Commands;
+using LanguageLearning.WebApi.Features.ExerciseEngine;
 using LanguageLearning.WebApi.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
@@ -38,11 +40,16 @@ public sealed class ResetLearningProgressTests
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var handler = new ResetLearningProgressCommandHandler(db, new CurrentUser(currentUser.Id),
-            new TestEnvironment(Environments.Development), NullLogger<ResetLearningProgressCommandHandler>.Instance);
+            new TestEnvironment(Environments.Development), DefaultResolver(db, lesson.Unit.Course.Code),
+            NullLogger<ResetLearningProgressCommandHandler>.Instance);
         var result = await handler.Handle(new(), TestContext.Current.CancellationToken);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(new ResetLearningProgressResponse(1, 1, 1, 1), result.Value);
+        Assert.Equal(1, result.Value.LessonAttemptsDeleted);
+        Assert.Equal(1, result.Value.ActivitiesDeleted);
+        Assert.Equal(1, result.Value.SubmissionsDeleted);
+        Assert.Equal(1, result.Value.MistakesDeleted);
+        Assert.True(result.Value.AssignmentCreated);
         var token = TestContext.Current.CancellationToken;
         Assert.Empty(await db.LessonAttempts.Where(x => x.UserId == currentUser.Id).ToListAsync(token));
         Assert.Empty(await db.UserExerciseMistakes.Where(x => x.UserId == currentUser.Id).ToListAsync(token));
@@ -51,6 +58,12 @@ public sealed class ResetLearningProgressTests
         Assert.Single(await db.Courses.ToListAsync(token));
         Assert.Single(await db.Exercises.ToListAsync(token));
         Assert.Equal(2, await db.Users.CountAsync(token));
+        var assignment = await db.UserCourseAssignments.SingleAsync(x => x.UserId == currentUser.Id, token);
+        Assert.Equal(UserCourseAssignmentStatus.Assigned, assignment.Status);
+        Assert.Equal(lesson.Unit.Course.Id, assignment.CourseId);
+        Assert.Null(assignment.StartedAt);
+        Assert.Null(assignment.LastAccessedAt);
+        Assert.Null(assignment.CompletedAt);
     }
 
     [Fact]
@@ -58,7 +71,8 @@ public sealed class ResetLearningProgressTests
     {
         await using var db = Db();
         var handler = new ResetLearningProgressCommandHandler(db, new CurrentUser(Guid.NewGuid()),
-            new TestEnvironment(Environments.Production), NullLogger<ResetLearningProgressCommandHandler>.Instance);
+            new TestEnvironment(Environments.Production), DefaultResolver(db, "test"),
+            NullLogger<ResetLearningProgressCommandHandler>.Instance);
 
         var result = await handler.Handle(new(), TestContext.Current.CancellationToken);
 
@@ -80,6 +94,9 @@ public sealed class ResetLearningProgressTests
 
     private static ApplicationDbContext Db() => new(new DbContextOptionsBuilder<ApplicationDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+
+    private static IDefaultCourseResolver DefaultResolver(ApplicationDbContext db, string code) =>
+        new DefaultCourseResolver(db, new LearningOptions { DefaultCourseCode = code });
 
     private static Lesson Catalog()
     {

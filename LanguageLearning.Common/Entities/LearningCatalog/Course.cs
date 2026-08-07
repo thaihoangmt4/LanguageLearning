@@ -1,4 +1,5 @@
 using LanguageLearning.Common.Entities.Base;
+using LanguageLearning.Common.Entities.Identity;
 using LanguageLearning.Common.Enums;
 
 namespace LanguageLearning.Common.Entities.LearningCatalog;
@@ -27,4 +28,6 @@ public sealed class Course : BaseEntity, IAuditableEntity
     public DateTime? UpdatedAt { get; set; }
 
     public IReadOnlyCollection<Unit> Units => _units.AsReadOnly();
+
+    public ICollection<UserCourseAssignment> UserAssignments { get; set; } = [];
 }

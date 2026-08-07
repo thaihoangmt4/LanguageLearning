@@ -24,10 +24,10 @@ public sealed class LessonAttemptConfiguration : IEntityTypeConfiguration<Lesson
         builder.HasOne(x => x.Lesson).WithMany()
             .HasForeignKey(x => x.LessonId).OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(x => new { x.UserId, x.Status });
-        builder.HasIndex(x => x.UserId)
+        builder.HasIndex(x => new { x.UserId, x.LessonId })
             .IsUnique()
             .HasFilter("\"Status\" = 'InProgress'")
-            .HasDatabaseName("IX_lesson_attempts_UserId_InProgress");
+            .HasDatabaseName("IX_lesson_attempts_UserId_LessonId_InProgress");
         builder.HasIndex(x => x.LessonId);
     }
 }

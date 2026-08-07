@@ -26,6 +26,7 @@ public sealed class ExerciseSubmissionService(
     IExerciseDefinitionValidatorResolver definitionValidator,
     IExerciseAnswerValidatorResolver answerValidator,
     IExerciseEvaluatorResolver evaluatorResolver,
+    ILearningPathResolver pathResolver,
     ILogger<ExerciseSubmissionService> logger) : IExerciseSubmissionService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -66,6 +67,10 @@ public sealed class ExerciseSubmissionService(
         if (attempt.Status != LessonAttemptStatus.InProgress)
             return Result<ExerciseSubmissionResult>.Failure(ExerciseWorkflowErrors.LessonAttemptCompleted);
 
+        var currentActivityId = await NextRequiredActivityIdAsync(attempt.Id, cancellationToken);
+        if (currentActivityId != submission.LessonAttemptExerciseId)
+            return Result<ExerciseSubmissionResult>.Failure(ExerciseWorkflowErrors.ExerciseNotCurrent);
+
         var activity = await dbContext.LessonAttemptExercises
             .Include(x => x.Exercise)
             .SingleOrDefaultAsync(x => x.Id == submission.LessonAttemptExerciseId, cancellationToken);
@@ -99,6 +104,7 @@ public sealed class ExerciseSubmissionService(
             return Result<ExerciseSubmissionResult>.Failure(evaluated.Error);
 
         var now = DateTime.UtcNow;
+        attempt.LastAccessedAt = now;
         var attemptNumber = await dbContext.ExerciseAttempts
             .Where(x => x.LessonAttemptExerciseId == activity.Id)
             .Select(x => (int?)x.AttemptNumber).MaxAsync(cancellationToken) is { } current ? current + 1 : 1;
@@ -123,6 +129,18 @@ public sealed class ExerciseSubmissionService(
         await RecalculateProgressAsync(attempt, now, cancellationToken);
         var nextActivityId = await NextRequiredActivityIdAsync(attempt.Id, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
+        if (attempt.Status == LessonAttemptStatus.Completed)
+        {
+            var path = await pathResolver.ResolveAsync(cancellationToken);
+            if (path.IsSuccess && path.Value.State == LearningPathState.CourseCompleted && path.Value.AssignmentId is { } assignmentId)
+            {
+                var assignment = await dbContext.UserCourseAssignments.SingleAsync(x => x.Id == assignmentId, cancellationToken);
+                assignment.Status = UserCourseAssignmentStatus.Completed;
+                assignment.LastAccessedAt = now;
+                assignment.CompletedAt = now;
+                await dbContext.SaveChangesAsync(cancellationToken);
+            }
+        }
         await CommitAsync(transaction, cancellationToken);
 
         logger.LogInformation("Processed SubmissionId {SubmissionId} for UserId {UserId}, LessonAttemptId {LessonAttemptId}, LessonId {LessonId}, LessonAttemptExerciseId {LessonAttemptExerciseId}, ExerciseId {ExerciseId}, ExerciseType {ExerciseType}, ActivityType {ActivityType}, ExerciseVersion {ExerciseVersion}, EvaluationStatus {EvaluationStatus}, AttemptNumber {AttemptNumber}, FirstCompletion {FirstCompletion}",

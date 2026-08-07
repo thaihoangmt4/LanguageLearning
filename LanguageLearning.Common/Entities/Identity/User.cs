@@ -39,5 +39,7 @@ public sealed class User : BaseEntity, IAuditableEntity
 
     public ICollection<LessonAttempt> LessonAttempts { get; set; } = [];
 
+    public ICollection<UserCourseAssignment> CourseAssignments { get; set; } = [];
+
     public ICollection<UserExerciseMistake> ExerciseMistakes { get; set; } = [];
 }

@@ -32,17 +32,30 @@ public sealed class LearningSessionService(
         var resolution = await pathResolver.ResolveAsync(cancellationToken);
         if (resolution.IsFailure)
             return Result<LearningSessionResult>.Failure(resolution.Error);
+        if (resolution.Value.State == LearningPathState.NoActiveAssignment)
+            return Result<LearningSessionResult>.Failure(ExerciseWorkflowErrors.NoActiveAssignment);
+        if (resolution.Value.State == LearningPathState.CourseCompleted)
+            return Result<LearningSessionResult>.Failure(ExerciseWorkflowErrors.LearningPathCompleted);
 
-        if (resolution.Value.IsResume)
+        var now = DateTime.UtcNow;
+        var assignment = await dbContext.UserCourseAssignments
+            .SingleAsync(x => x.Id == resolution.Value.AssignmentId, cancellationToken);
+
+        if (resolution.Value.State == LearningPathState.Resume)
         {
-            var resumed = await dbContext.LessonAttempts.AsNoTracking()
+            var resumed = await dbContext.LessonAttempts
                 .SingleAsync(x => x.Id == resolution.Value.LessonAttemptId, cancellationToken);
+            resumed.LastAccessedAt = now;
+            assignment.Status = UserCourseAssignmentStatus.InProgress;
+            assignment.StartedAt ??= now;
+            assignment.LastAccessedAt = now;
+            await dbContext.SaveChangesAsync(cancellationToken);
             await CommitAsync(transaction, cancellationToken);
             logger.LogInformation("Resumed LessonAttemptId {LessonAttemptId} for UserId {UserId}, LessonId {LessonId}", resumed.Id, userId, resumed.LessonId);
             return Result<LearningSessionResult>.Success(new(resumed.Id, resumed.LessonId, LearningSessionMode.Resumed, resumed.Status));
         }
 
-        var lessonId = resolution.Value.LessonId;
+        var lessonId = resolution.Value.LessonId!.Value;
         var coreExercises = await dbContext.Exercises
             .Where(x => x.LessonId == lessonId && x.IsActive)
             .OrderBy(x => x.DisplayOrder)
@@ -57,13 +70,13 @@ public sealed class LearningSessionService(
             .Take(ReviewLimit)
             .ToListAsync(cancellationToken);
 
-        var now = DateTime.UtcNow;
         var attempt = new LessonAttempt
         {
             UserId = userId,
             LessonId = lessonId,
             Status = LessonAttemptStatus.InProgress,
             StartedAt = now,
+            LastAccessedAt = now,
             TotalActivityCount = reviews.Count + coreExercises.Count
         };
         var order = 1;
@@ -98,15 +111,38 @@ public sealed class LearningSessionService(
         }
 
         dbContext.LessonAttempts.Add(attempt);
+        assignment.Status = UserCourseAssignmentStatus.InProgress;
+        assignment.StartedAt ??= now;
+        assignment.LastAccessedAt = now;
         try
         {
             await dbContext.SaveChangesAsync(cancellationToken);
+            if (attempt.Status == LessonAttemptStatus.Completed)
+            {
+                var completedPath = await pathResolver.ResolveAsync(cancellationToken);
+                if (completedPath.IsSuccess && completedPath.Value.State == LearningPathState.CourseCompleted)
+                {
+                    assignment.Status = UserCourseAssignmentStatus.Completed;
+                    assignment.CompletedAt = now;
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                }
+            }
             await CommitAsync(transaction, cancellationToken);
         }
         catch (DbUpdateException exception) when (IsActiveAttemptConflict(exception))
         {
             logger.LogWarning("Concurrent active lesson attempt conflict for UserId {UserId}, LessonId {LessonId}", userId, lessonId);
-            return Result<LearningSessionResult>.Failure(ExerciseWorkflowErrors.ActiveLessonAttemptConflict);
+            if (transaction is not null)
+                await transaction.RollbackAsync(cancellationToken);
+            dbContext.ChangeTracker.Clear();
+            var concurrentAttempt = await dbContext.LessonAttempts.AsNoTracking()
+                .Where(x => x.UserId == userId && x.LessonId == lessonId && x.Status == LessonAttemptStatus.InProgress)
+                .OrderByDescending(x => x.LastAccessedAt ?? x.StartedAt)
+                .FirstOrDefaultAsync(cancellationToken);
+            return concurrentAttempt is null
+                ? Result<LearningSessionResult>.Failure(ExerciseWorkflowErrors.ActiveLessonAttemptConflict)
+                : Result<LearningSessionResult>.Success(new(concurrentAttempt.Id, concurrentAttempt.LessonId,
+                    LearningSessionMode.Resumed, concurrentAttempt.Status));
         }
 
         logger.LogInformation("Started LessonAttemptId {LessonAttemptId} for UserId {UserId}, LessonId {LessonId} with {ReviewCount} review and {CoreCount} core activities",
@@ -125,5 +161,5 @@ public sealed class LearningSessionService(
         transaction is null ? Task.CompletedTask : transaction.CommitAsync(cancellationToken);
 
     private static bool IsActiveAttemptConflict(DbUpdateException exception) =>
-        exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "IX_lesson_attempts_UserId_InProgress" };
+        exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "IX_lesson_attempts_UserId_LessonId_InProgress" };
 }
