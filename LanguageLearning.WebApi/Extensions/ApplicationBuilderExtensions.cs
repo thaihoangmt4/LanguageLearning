@@ -2,6 +2,8 @@ namespace LanguageLearning.WebApi.Extensions;
 
 using LanguageLearning.WebApi.Configuration;
 using LanguageLearning.WebApi.Persistence;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 /// <summary>
 /// Extension methods for configuring the HTTP request pipeline.
@@ -38,31 +40,28 @@ public static class ApplicationBuilderExtensions
         app.UseAuthentication();
         app.UseAuthorization();
 
-        app.MapHealthChecks("/health", new()
+        app.MapHealthChecks("/health/live", new HealthCheckOptions
         {
-            ResponseWriter = async (context, report) =>
-            {
-                context.Response.ContentType = "application/json";
+            Predicate = _ => false,
+            ResponseWriter = WriteHealthResponseAsync
+        }).AllowAnonymous();
 
-                var result = new
-                {
-                    status = report.Status.ToString(),
-                    totalDuration = report.TotalDuration.ToString(),
-                    entries = report.Entries.Select(e => new
-                    {
-                        key = e.Key,
-                        status = e.Value.Status.ToString(),
-                        duration = e.Value.Duration.ToString(),
-                        description = e.Value.Description
-                    })
-                };
-
-                await context.Response.WriteAsJsonAsync(result);
-            }
-        });
+        app.MapHealthChecks("/health/ready", new HealthCheckOptions
+        {
+            Predicate = registration => registration.Tags.Contains("ready"),
+            ResponseWriter = WriteHealthResponseAsync
+        }).AllowAnonymous();
 
         app.MapControllers();
 
         return app;
+    }
+
+    private static Task WriteHealthResponseAsync(HttpContext context, HealthReport report)
+    {
+        context.Response.ContentType = "text/plain";
+        return context.Response.WriteAsync(
+            report.Status == HealthStatus.Healthy ? "Healthy" : "Unhealthy",
+            context.RequestAborted);
     }
 }

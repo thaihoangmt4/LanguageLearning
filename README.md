@@ -2,6 +2,8 @@
 
 See [Sprint 6 Exercise Engine v2](docs/sprint-6-exercise-engine.md) for the backend model, learner flow, seed data, safety limits, and deferred work.
 
+See [Backend production deployment](docs/production-deployment.md) for the GitHub Actions, GHCR, and EC2 deployment runbook.
+
 ## EF migrations
 dotnet ef migrations add MigrationName --startup-project LanguageLearning.WebApi/ --project LanguageLearning.Common --context ApplicationDbContext --output-dir Migrations
 

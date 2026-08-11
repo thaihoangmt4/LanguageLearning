@@ -1,0 +1,85 @@
+name: language-learning-backend
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  backend:
+    image: ${BACKEND_IMAGE:?BACKEND_IMAGE is required}:${BACKEND_IMAGE_TAG:-latest}
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: ${ConnectionStrings__DefaultConnection:?ConnectionStrings__DefaultConnection is required}
+      Jwt__Secret: ${Jwt__Secret:?Jwt__Secret is required}
+      Google__ClientId: ${Google__ClientId:?Google__ClientId is required}
+      Cors__AllowedOrigins__0: ${Cors__AllowedOrigins__0:?Cors__AllowedOrigins__0 is required}
+      DeepSeek__ApiKey: ${DeepSeek__ApiKey:?DeepSeek__ApiKey is required}
+      Migration__Enabled: ${Migration__Enabled:-false}
+      Migration__ApiKey: ${Migration__ApiKey:?Migration__ApiKey is required}
+    ports:
+      - "5000:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/8080 &&
+          printf 'GET /health/live HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '200 OK' <&3
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    logging: *default-logging
+    networks:
+      - language-learning-backend-network
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    logging: *default-logging
+    networks:
+      - language-learning-backend-network
+
+  redis:
+    image: redis:7.4-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    logging: *default-logging
+    networks:
+      - language-learning-backend-network
+
+networks:
+  language-learning-backend-network:
+    name: language-learning-backend-network
+    driver: bridge
+
+volumes:
+  postgres-data:
+    name: language-learning-postgres-data

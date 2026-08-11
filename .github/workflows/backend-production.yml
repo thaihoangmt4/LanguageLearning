@@ -1,0 +1,175 @@
+name: Backend Production CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-production
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    name: Restore, build, and test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.100
+
+      - name: Restore
+        run: dotnet restore LanguageLearning.slnx
+
+      - name: Build
+        run: dotnet build LanguageLearning.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test LanguageLearning.WebApi.Tests/LanguageLearning.WebApi.Tests.csproj --configuration Release --no-build --no-restore
+
+  publish:
+    name: Build and publish ARM64 image
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.image.outputs.name }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set image name
+        id: image
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/language-learning-backend" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: metadata
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ github.sha }}
+
+      - name: Build and push ARM64 image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: LanguageLearning.WebApi/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to production EC2
+    needs:
+      - ci
+      - publish
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Check out deployment configuration
+        uses: actions/checkout@v6
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$EC2_SSH_PRIVATE_KEY" > "$HOME/.ssh/backend-production"
+          chmod 600 "$HOME/.ssh/backend-production"
+
+          if [ -n "$EC2_KNOWN_HOSTS" ]; then
+            printf '%s\n' "$EC2_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          else
+            ssh-keyscan -H "$EC2_HOST" > "$HOME/.ssh/known_hosts"
+          fi
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Copy production Compose file
+        shell: bash
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          set -euo pipefail
+          scp -i "$HOME/.ssh/backend-production" \
+            docker-compose.prod.yml \
+            "${EC2_USER}@${EC2_HOST}:/opt/language-learning-backend/docker-compose.prod.yml"
+
+      - name: Deploy current SHA and verify liveness
+        shell: bash
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          BACKEND_IMAGE: ${{ needs.publish.outputs.image }}
+        run: |
+          set -euo pipefail
+          ssh -i "$HOME/.ssh/backend-production" "${EC2_USER}@${EC2_HOST}" \
+            bash -s -- "$BACKEND_IMAGE" "$GITHUB_SHA" <<'REMOTE'
+          set -euo pipefail
+
+          readonly deployment_dir=/opt/language-learning-backend
+          readonly backend_image="$1"
+          readonly backend_image_tag="$2"
+
+          cd "$deployment_dir"
+          test -f docker-compose.prod.yml
+          test -f .env
+
+          BACKEND_IMAGE="$backend_image" BACKEND_IMAGE_TAG="$backend_image_tag" \
+            docker compose -f docker-compose.prod.yml --env-file .env pull backend
+
+          BACKEND_IMAGE="$backend_image" BACKEND_IMAGE_TAG="$backend_image_tag" \
+            docker compose -f docker-compose.prod.yml --env-file .env up -d
+
+          BACKEND_IMAGE="$backend_image" BACKEND_IMAGE_TAG="$backend_image_tag" \
+            docker compose -f docker-compose.prod.yml --env-file .env ps
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:5000/health/live > /dev/null; then
+              echo "Backend liveness check passed."
+              exit 0
+            fi
+            echo "Backend is not live yet (attempt ${attempt}/30)."
+            sleep 5
+          done
+
+          echo "Backend liveness check failed after 30 attempts." >&2
+          BACKEND_IMAGE="$backend_image" BACKEND_IMAGE_TAG="$backend_image_tag" \
+            docker compose -f docker-compose.prod.yml --env-file .env ps >&2
+          BACKEND_IMAGE="$backend_image" BACKEND_IMAGE_TAG="$backend_image_tag" \
+            docker compose -f docker-compose.prod.yml --env-file .env logs --tail 100 backend >&2
+          exit 1
+          REMOTE

@@ -17,6 +17,7 @@ using LanguageLearning.WebApi.Services;
 using LanguageLearning.WebApi.Persistence;
 using LanguageLearning.WebApi.Features.ExerciseEngine;
 using LanguageLearning.WebApi.Features.ExerciseGeneration;
+using LanguageLearning.WebApi.Features.System.DatabaseMigration;
 using LanguageLearning.WebApi.Infrastructure.DeepSeek;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -49,11 +50,16 @@ public static class ServiceCollectionExtensions
         var learningOptions = BuildLearningOptions(configuration);
         var exerciseGenerationOptions = BuildExerciseGenerationOptions(configuration);
         var deepSeekOptions = BuildDeepSeekOptions(configuration);
+        var migrationOptions = configuration.GetSection(MigrationOptions.SectionName)
+            .Get<MigrationOptions>() ?? new MigrationOptions();
 
         services.AddSingleton(tokenOptions);
         services.AddSingleton(googleOptions);
         services.AddSingleton(learningOptions);
         services.AddSingleton(exerciseGenerationOptions);
+        services.AddSingleton(migrationOptions);
+        services.AddSingleton<DatabaseMigrationGuard>();
+        services.AddScoped<IDatabaseMigrationExecutor, DatabaseMigrationExecutor>();
 
         services.AddSingleton<ITokenHasher, TokenHasher>();
         services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
@@ -332,7 +338,7 @@ public static class ServiceCollectionExtensions
             .AddNpgSql(
                 connectionString: connectionString!,
                 name: "postgresql",
-                tags: ["db", "postgres"]);
+                tags: ["ready", "db", "postgres"]);
 
         return services;
     }
