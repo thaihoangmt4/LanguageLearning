@@ -19,7 +19,7 @@ services:
       Migration__Enabled: ${Migration__Enabled:-false}
       Migration__ApiKey: ${Migration__ApiKey:?Migration__ApiKey is required}
     ports:
-      - "5000:8080"
+      - "127.0.0.1:5000:8080"
     depends_on:
       postgres:
         condition: service_healthy
