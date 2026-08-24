@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using System.Text.Json.Serialization;
 using FluentValidation;
@@ -20,6 +21,7 @@ using LanguageLearning.WebApi.Features.ExerciseGeneration;
 using LanguageLearning.WebApi.Features.System.DatabaseMigration;
 using LanguageLearning.WebApi.Infrastructure.DeepSeek;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
@@ -76,6 +78,7 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<ExerciseGenerationBackgroundService>();
 
         services.AddPostgres(configuration);
+        services.AddReverseProxyForwardedHeaders(configuration, environment);
         services.AddExerciseEngine();
         services.AddMediatR();
         services.AddFluentValidation();
@@ -92,6 +95,49 @@ public static class ServiceCollectionExtensions
             .AddJsonOptions(options =>
                 options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
         services.AddProblemDetails();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Trusts forwarded client and scheme information only from the configured reverse proxy.
+    /// </summary>
+    private static IServiceCollection AddReverseProxyForwardedHeaders(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        IHostEnvironment environment)
+    {
+        const string configurationKey = "ReverseProxy:KnownProxy";
+        var configuredProxy = configuration[configurationKey];
+
+        if (string.IsNullOrWhiteSpace(configuredProxy))
+        {
+            if (environment.IsProduction())
+            {
+                throw new InvalidOperationException(
+                    $"Missing required production configuration value '{configurationKey}'. " +
+                    "Configure the exact IP address of the trusted reverse proxy.");
+            }
+
+            return services;
+        }
+
+        if (!IPAddress.TryParse(configuredProxy, out var knownProxy))
+        {
+            throw new InvalidOperationException(
+                $"Invalid configuration value for '{configurationKey}': '{configuredProxy}'. " +
+                "Configure a valid IP address for the trusted reverse proxy.");
+        }
+
+        services.Configure<ForwardedHeadersOptions>(options =>
+        {
+            options.ForwardedHeaders =
+                ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+            options.ForwardLimit = 1;
+            options.KnownProxies.Clear();
+            options.KnownIPNetworks.Clear();
+            options.KnownProxies.Add(knownProxy);
+        });
 
         return services;
     }

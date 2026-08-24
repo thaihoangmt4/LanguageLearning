@@ -15,6 +15,7 @@ services:
       Jwt__Secret: ${Jwt__Secret:?Jwt__Secret is required}
       Google__ClientId: ${Google__ClientId:?Google__ClientId is required}
       Cors__AllowedOrigins__0: ${Cors__AllowedOrigins__0:?Cors__AllowedOrigins__0 is required}
+      ReverseProxy__KnownProxy: ${ReverseProxy__KnownProxy:?ReverseProxy__KnownProxy is required}
       DeepSeek__ApiKey: ${DeepSeek__ApiKey:?DeepSeek__ApiKey is required}
       Migration__Enabled: ${Migration__Enabled:-false}
       Migration__ApiKey: ${Migration__ApiKey:?Migration__ApiKey is required}

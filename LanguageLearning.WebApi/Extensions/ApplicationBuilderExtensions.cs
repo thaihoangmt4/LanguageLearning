@@ -3,6 +3,7 @@ namespace LanguageLearning.WebApi.Extensions;
 using LanguageLearning.WebApi.Configuration;
 using LanguageLearning.WebApi.Persistence;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 /// <summary>
@@ -22,6 +23,8 @@ public static class ApplicationBuilderExtensions
     /// </summary>
     public static WebApplication UseApplicationPipeline(this WebApplication app)
     {
+        app.UseForwardedHeaders();
+
         app.UseExceptionHandler();
 
         app.UseSwagger();
