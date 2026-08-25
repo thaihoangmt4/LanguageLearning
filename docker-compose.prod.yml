@@ -16,6 +16,7 @@ services:
       Google__ClientId: ${Google__ClientId:?Google__ClientId is required}
       Cors__AllowedOrigins__0: ${Cors__AllowedOrigins__0:?Cors__AllowedOrigins__0 is required}
       ReverseProxy__KnownProxy: ${ReverseProxy__KnownProxy:?ReverseProxy__KnownProxy is required}
+      LogFiles__Directory: ${LogFiles__Directory:-/app/logs}
       DeepSeek__ApiKey: ${DeepSeek__ApiKey:?DeepSeek__ApiKey is required}
       Migration__Enabled: ${Migration__Enabled:-false}
       Migration__ApiKey: ${Migration__ApiKey:?Migration__ApiKey is required}
@@ -40,6 +41,8 @@ services:
       retries: 3
       start_period: 15s
     restart: unless-stopped
+    volumes:
+      - backend-logs:${LogFiles__Directory:-/app/logs}
     logging: *default-logging
     networks:
       - language-learning-backend-network
@@ -86,3 +89,5 @@ networks:
 volumes:
   postgres-data:
     name: language-learning-postgres-data
+  backend-logs:
+    name: language-learning-backend-logs

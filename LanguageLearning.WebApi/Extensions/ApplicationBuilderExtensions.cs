@@ -1,9 +1,11 @@
 namespace LanguageLearning.WebApi.Extensions;
 
+using System.Diagnostics;
 using LanguageLearning.WebApi.Configuration;
 using LanguageLearning.WebApi.Persistence;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Serilog;
 
 /// <summary>
 /// Extension methods for configuring the HTTP request pipeline.
@@ -22,6 +24,20 @@ public static class ApplicationBuilderExtensions
     public static WebApplication UseApplicationPipeline(this WebApplication app)
     {
         app.UseForwardedHeaders();
+
+        app.UseSerilogRequestLogging(options =>
+        {
+            options.EnrichDiagnosticContext = (diagnosticContext, httpContext) =>
+            {
+                var traceId = Activity.Current?.TraceId.ToString();
+                diagnosticContext.Set("RequestId", httpContext.TraceIdentifier);
+                if (!string.IsNullOrEmpty(traceId))
+                {
+                    diagnosticContext.Set("TraceId", traceId);
+                    diagnosticContext.Set("CorrelationId", traceId);
+                }
+            };
+        });
 
         app.UseExceptionHandler();
 

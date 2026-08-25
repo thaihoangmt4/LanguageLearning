@@ -16,16 +16,19 @@ using LanguageLearning.WebApi.Behaviors;
 using LanguageLearning.WebApi.Middlewares;
 using LanguageLearning.WebApi.Services;
 using LanguageLearning.WebApi.Persistence;
+using LanguageLearning.WebApi.Features.Admin.Logs;
 using LanguageLearning.WebApi.Features.ExerciseEngine;
 using LanguageLearning.WebApi.Features.ExerciseGeneration;
 using LanguageLearning.WebApi.Features.System.DatabaseMigration;
 using LanguageLearning.WebApi.Infrastructure.DeepSeek;
+using LanguageLearning.WebApi.Infrastructure.Logging;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using Serilog;
+using Serilog.Formatting.Json;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
@@ -52,6 +55,7 @@ public static class ServiceCollectionExtensions
         var learningOptions = BuildLearningOptions(configuration);
         var exerciseGenerationOptions = BuildExerciseGenerationOptions(configuration);
         var deepSeekOptions = BuildDeepSeekOptions(configuration);
+        var logFileOptions = BuildLogFileOptions(configuration);
         var migrationOptions = configuration.GetSection(MigrationOptions.SectionName)
             .Get<MigrationOptions>() ?? new MigrationOptions();
 
@@ -59,6 +63,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(googleOptions);
         services.AddSingleton(learningOptions);
         services.AddSingleton(exerciseGenerationOptions);
+        services.AddSingleton(logFileOptions);
         services.AddSingleton(migrationOptions);
         services.AddSingleton<DatabaseMigrationGuard>();
         services.AddScoped<IDatabaseMigrationExecutor, DatabaseMigrationExecutor>();
@@ -73,6 +78,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IDefaultCourseResolver, DefaultCourseResolver>();
         services.AddScoped<ILearningSessionService, LearningSessionService>();
         services.AddScoped<IExerciseSubmissionService, ExerciseSubmissionService>();
+        services.AddSingleton<LogSanitizer>();
+        services.AddSingleton<ILogQueryService, FileLogQueryService>();
         services.AddScoped<ExerciseEngineSeeder>();
         services.AddDeepSeekExerciseGeneration(deepSeekOptions);
         services.AddHostedService<ExerciseGenerationBackgroundService>();
@@ -278,6 +285,14 @@ public static class ServiceCollectionExtensions
         return options;
     }
 
+    private static LogFileOptions BuildLogFileOptions(IConfiguration configuration)
+    {
+        var options = configuration.GetSection(LogFileOptions.SectionName).Get<LogFileOptions>()
+            ?? new LogFileOptions();
+        options.Validate();
+        return options;
+    }
+
     /// <summary>
     /// Configures Entity Framework Core with PostgreSQL using the connection string from configuration.
     /// </summary>
@@ -452,11 +467,16 @@ public static class ServiceCollectionExtensions
 
         if (!environment.IsDevelopment())
         {
+            var logFileOptions = BuildLogFileOptions(configuration);
             loggerConfig.WriteTo.File(
-                path: Path.Combine("logs", "log-.txt"),
+                formatter: new JsonFormatter(renderMessage: true),
+                path: Path.Combine(logFileOptions.Directory, "log-.json"),
                 rollingInterval: RollingInterval.Day,
-                retainedFileCountLimit: 30,
-                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}");
+                fileSizeLimitBytes: logFileOptions.FileSizeLimitBytes,
+                rollOnFileSizeLimit: true,
+                retainedFileCountLimit: logFileOptions.RetainedFileCountLimit,
+                retainedFileTimeLimit: TimeSpan.FromDays(logFileOptions.RetentionDays),
+                shared: true);
         }
 
         Log.Logger = loggerConfig.CreateLogger();
