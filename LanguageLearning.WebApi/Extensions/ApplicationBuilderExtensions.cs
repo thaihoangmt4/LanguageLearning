@@ -3,7 +3,6 @@ namespace LanguageLearning.WebApi.Extensions;
 using LanguageLearning.WebApi.Configuration;
 using LanguageLearning.WebApi.Persistence;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
-using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 /// <summary>
@@ -11,9 +10,8 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 /// </summary>
 public static class ApplicationBuilderExtensions
 {
-    public static async Task SeedDevelopmentDataAsync(this WebApplication app, CancellationToken cancellationToken)
+    public static async Task SeedDataAsync(this WebApplication app, CancellationToken cancellationToken)
     {
-        if (!app.Environment.IsDevelopment()) return;
         await using var scope = app.Services.CreateAsyncScope();
         await scope.ServiceProvider.GetRequiredService<ExerciseEngineSeeder>().SeedAsync(cancellationToken);
     }

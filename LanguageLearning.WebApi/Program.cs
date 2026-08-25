@@ -15,7 +15,7 @@ app.UseApplicationPipeline();
 try
 {
     Log.Information("Application starting up.");
-    await app.SeedDevelopmentDataAsync(app.Lifetime.ApplicationStopping);
+    await app.SeedDataAsync(app.Lifetime.ApplicationStopping);
     await app.RunAsync();
 }
 catch (Exception ex) when (ex is not HostAbortedException)
