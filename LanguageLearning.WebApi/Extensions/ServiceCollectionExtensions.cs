@@ -63,6 +63,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(googleOptions);
         services.AddSingleton(learningOptions);
         services.AddSingleton(exerciseGenerationOptions);
+        services.AddSingleton(TimeProvider.System);
         services.AddSingleton(logFileOptions);
         services.AddSingleton(migrationOptions);
         services.AddSingleton<DatabaseMigrationGuard>();

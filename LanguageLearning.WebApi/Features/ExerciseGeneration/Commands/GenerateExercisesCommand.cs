@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using FluentValidation;
-using LanguageLearning.Common.Configuration;
 using LanguageLearning.Common.Entities.ExerciseEngine;
+using LanguageLearning.Common.Entities.ExerciseGeneration;
 using LanguageLearning.Common.Enums;
 using LanguageLearning.Common.ExerciseEngine;
 using LanguageLearning.Common.ExerciseEngine.Models;
@@ -25,7 +25,6 @@ public sealed record GenerateExercisesResult(
 
 public sealed class GenerateExercisesCommandHandler(
     ApplicationDbContext dbContext,
-    ExerciseGenerationOptions options,
     IExerciseGenerator generator,
     IValidator<GeneratedExercise> generatedExerciseValidator,
     IExerciseContentSerializer contentSerializer,
@@ -41,6 +40,21 @@ public sealed class GenerateExercisesCommandHandler(
         CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
+        var settings = await dbContext.ExerciseGenerationSettings
+            .AsNoTracking()
+            .Where(value => value.Id == ExerciseGenerationSettings.SingletonId)
+            .Select(value => new ExerciseGenerationSettingsSnapshot(
+                value.InitialDelayMinutes,
+                value.IntervalHours,
+                value.MinimumExerciseThreshold,
+                value.TargetExerciseCount,
+                value.MaxExercisesPerLessonPerRun,
+                value.GenerationBatchSize,
+                value.UpdatedAtUtc,
+                value.UpdatedByUserId,
+                value.Version))
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException(ExerciseGenerationSettingsErrors.NotFound);
         logger.LogInformation("Exercise generation job started");
 
         var totalLessons = await dbContext.Lessons.AsNoTracking()
@@ -53,7 +67,7 @@ public sealed class GenerateExercisesCommandHandler(
                 dbContext.Exercises.Count(exercise => exercise.LessonId == x.Id && exercise.IsActive),
                 dbContext.Exercises.Where(exercise => exercise.LessonId == x.Id)
                     .Select(exercise => (int?)exercise.DisplayOrder).Max() ?? 0))
-            .Where(x => x.CurrentExerciseCount < options.MinimumExerciseThreshold)
+            .Where(x => x.CurrentExerciseCount < settings.MinimumExerciseThreshold)
             .ToListAsync(cancellationToken);
 
         var candidateIds = candidates.Select(x => x.LessonId).ToArray();
@@ -88,9 +102,9 @@ public sealed class GenerateExercisesCommandHandler(
             var lessonStopwatch = Stopwatch.StartNew();
             var requiredCount = ExerciseGenerationPolicy.RequiredCount(
                 candidate.CurrentExerciseCount,
-                options.MinimumExerciseThreshold,
-                options.TargetExerciseCount,
-                options.MaxExercisesPerLessonPerRun);
+                settings.MinimumExerciseThreshold,
+                settings.TargetExerciseCount,
+                settings.MaxExercisesPerLessonPerRun);
 
             if (requiredCount == 0 || !lessonContexts.TryGetValue(candidate.LessonId, out var lesson))
                 continue;
@@ -104,10 +118,10 @@ public sealed class GenerateExercisesCommandHandler(
             var nextDisplayOrder = candidate.MaximumDisplayOrder;
             var providerFailed = false;
 
-            for (var offset = 0; offset < requiredCount; offset += options.GenerationBatchSize)
+            for (var offset = 0; offset < requiredCount; offset += settings.GenerationBatchSize)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var batchSize = Math.Min(options.GenerationBatchSize, requiredCount - offset);
+                var batchSize = Math.Min(settings.GenerationBatchSize, requiredCount - offset);
                 requested += batchSize;
                 GeneratedExerciseBatch generatedBatch;
 

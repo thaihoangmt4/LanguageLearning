@@ -1,5 +1,6 @@
 using LanguageLearning.Common.Configuration;
 using LanguageLearning.Common.Entities.ExerciseEngine;
+using LanguageLearning.Common.Entities.ExerciseGeneration;
 using LanguageLearning.Common.Entities.LearningCatalog;
 using LanguageLearning.Common.Enums;
 using LanguageLearning.Common.ExerciseEngine.Serialization;
@@ -166,6 +167,55 @@ public sealed class ExerciseGenerationTests
     }
 
     [Fact]
+    public async Task GenerationRun_UsesDatabaseBackedSettings()
+    {
+        await using var db = CreateDb();
+        await SeedLessonAsync(db, "DATABASE-SETTINGS", 0);
+        var settings = new ExerciseGenerationSettings();
+        settings.Update(0, 24, 1, 3, 3, 2, DateTime.UtcNow, Guid.NewGuid());
+        db.ExerciseGenerationSettings.Add(settings);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var requested = new List<int>();
+        var generator = new StubGenerator(context =>
+        {
+            requested.Add(context.RequestedCount);
+            return ValidBatch(context.RequestedCount, requested.Sum() - context.RequestedCount);
+        });
+        var result = await CreateHandler(db, generator)
+            .Handle(new(), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal([2, 1], requested);
+        Assert.Equal(3, result.Value.AcceptedExercises);
+    }
+
+    [Fact]
+    public async Task GenerationRun_UsesOneImmutableSettingsSnapshot()
+    {
+        await using var db = CreateDb();
+        await SeedLessonAsync(db, "SNAPSHOT", 0);
+        var requested = new List<int>();
+        var generator = new StubGenerator(context =>
+        {
+            requested.Add(context.RequestedCount);
+            var settings = db.ExerciseGenerationSettings.Single();
+            settings.Update(0, 24, 1, 3, 3, 3, DateTime.UtcNow, Guid.NewGuid());
+            db.SaveChanges();
+            return ValidBatch(context.RequestedCount, requested.Count - 1);
+        });
+
+        var handler = CreateHandler(
+            db,
+            generator,
+            Options(minimum: 1, target: 3, maximum: 3, batchSize: 1));
+
+        await handler
+            .Handle(new(), TestContext.Current.CancellationToken);
+
+        Assert.Equal([1, 1, 1], requested);
+    }
+
+    [Fact]
     public void BackgroundService_DependsOnScopeFactoryInsteadOfSender()
     {
         var parameters = typeof(ExerciseGenerationBackgroundService).GetConstructors().Single().GetParameters();
@@ -176,9 +226,27 @@ public sealed class ExerciseGenerationTests
     private static GenerateExercisesCommandHandler CreateHandler(
         ApplicationDbContext db,
         IExerciseGenerator generator,
-        ExerciseGenerationOptions? options = null) => new(
+        ExerciseGenerationOptions? options = null)
+    {
+        if (!db.ExerciseGenerationSettings.Any())
+        {
+            var configured = options ?? Options();
+            var settings = new ExerciseGenerationSettings();
+            settings.Update(
+                configured.InitialDelayMinutes,
+                configured.IntervalHours,
+                configured.MinimumExerciseThreshold,
+                configured.TargetExerciseCount,
+                configured.MaxExercisesPerLessonPerRun,
+                configured.GenerationBatchSize,
+                DateTime.UtcNow,
+                Guid.NewGuid());
+            db.ExerciseGenerationSettings.Add(settings);
+            db.SaveChanges();
+        }
+
+        return new(
             db,
-            options ?? Options(),
             generator,
             new GeneratedExerciseValidator(),
             new ExerciseContentSerializer(),
@@ -186,6 +254,7 @@ public sealed class ExerciseGenerationTests
                 new MultipleChoiceDefinitionValidator(), new TypingDefinitionValidator()
             ]),
             NullLogger<GenerateExercisesCommandHandler>.Instance);
+    }
 
     private static ExerciseGenerationOptions Options(
         int minimum = 20,
@@ -264,4 +333,5 @@ public sealed class ExerciseGenerationTests
             return Task.FromResult(generate(context));
         }
     }
+
 }

@@ -1,0 +1,107 @@
+using FluentValidation;
+using LanguageLearning.Common.Configuration;
+using LanguageLearning.Common.Persistence;
+using LanguageLearning.Common.Results;
+using LanguageLearning.WebApi.Features.ExerciseGeneration;
+using LanguageLearning.WebApi.Services;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
+using ExerciseGenerationSettingsEntity = LanguageLearning.Common.Entities.ExerciseGeneration.ExerciseGenerationSettings;
+
+namespace LanguageLearning.WebApi.Features.Admin.ExerciseGenerationSettings;
+
+public sealed record UpdateExerciseGenerationSettingsCommand(
+    int InitialDelayMinutes,
+    int IntervalHours,
+    int MinimumExerciseThreshold,
+    int TargetExerciseCount,
+    int MaxExercisesPerLessonPerRun,
+    int GenerationBatchSize,
+    Guid Version) : IRequest<Result<ExerciseGenerationSettingsResponse>>;
+
+public sealed class UpdateExerciseGenerationSettingsCommandValidator
+    : AbstractValidator<UpdateExerciseGenerationSettingsCommand>
+{
+    public UpdateExerciseGenerationSettingsCommandValidator()
+    {
+        RuleFor(command => command.Version).NotEmpty();
+        RuleFor(command => command).Custom((command, context) =>
+        {
+            var violations = ExerciseGenerationOptions.ValidateValues(
+                command.InitialDelayMinutes,
+                command.IntervalHours,
+                command.MinimumExerciseThreshold,
+                command.TargetExerciseCount,
+                command.MaxExercisesPerLessonPerRun,
+                command.GenerationBatchSize);
+            foreach (var violation in violations)
+                context.AddFailure(violation.PropertyName, violation.Message);
+        });
+    }
+}
+
+public sealed class UpdateExerciseGenerationSettingsCommandHandler(
+    ApplicationDbContext dbContext,
+    ICurrentUserContext currentUserContext,
+    TimeProvider timeProvider,
+    ILogger<UpdateExerciseGenerationSettingsCommandHandler> logger)
+    : IRequestHandler<UpdateExerciseGenerationSettingsCommand, Result<ExerciseGenerationSettingsResponse>>
+{
+    public async Task<Result<ExerciseGenerationSettingsResponse>> Handle(
+        UpdateExerciseGenerationSettingsCommand request,
+        CancellationToken cancellationToken)
+    {
+        if (currentUserContext.UserId is not { } adminUserId)
+        {
+            return Result<ExerciseGenerationSettingsResponse>.Failure(
+                ExerciseGenerationSettingsErrors.CurrentUserUnavailable);
+        }
+
+        var settings = await dbContext.ExerciseGenerationSettings.SingleOrDefaultAsync(
+            value => value.Id == ExerciseGenerationSettingsEntity.SingletonId,
+            cancellationToken);
+        if (settings is null)
+        {
+            return Result<ExerciseGenerationSettingsResponse>.Failure(
+                ExerciseGenerationSettingsErrors.NotFound);
+        }
+        if (settings.Version != request.Version)
+        {
+            return Result<ExerciseGenerationSettingsResponse>.Failure(
+                ExerciseGenerationSettingsErrors.ConcurrencyConflict);
+        }
+
+        var oldIntervalHours = settings.IntervalHours;
+        var oldGenerationBatchSize = settings.GenerationBatchSize;
+        settings.Update(
+            request.InitialDelayMinutes,
+            request.IntervalHours,
+            request.MinimumExerciseThreshold,
+            request.TargetExerciseCount,
+            request.MaxExercisesPerLessonPerRun,
+            request.GenerationBatchSize,
+            timeProvider.GetUtcNow().UtcDateTime,
+            adminUserId);
+
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Result<ExerciseGenerationSettingsResponse>.Failure(
+                ExerciseGenerationSettingsErrors.ConcurrencyConflict);
+        }
+
+        logger.LogInformation(
+            "Exercise generation settings updated by AdminUserId {AdminUserId}, OldIntervalHours {OldIntervalHours}, NewIntervalHours {NewIntervalHours}, OldGenerationBatchSize {OldGenerationBatchSize}, NewGenerationBatchSize {NewGenerationBatchSize}",
+            adminUserId,
+            oldIntervalHours,
+            settings.IntervalHours,
+            oldGenerationBatchSize,
+            settings.GenerationBatchSize);
+
+        return Result<ExerciseGenerationSettingsResponse>.Success(
+            GetExerciseGenerationSettingsQueryHandler.ToResponse(settings));
+    }
+}
