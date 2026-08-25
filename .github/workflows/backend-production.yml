@@ -94,75 +94,67 @@ jobs:
       - publish
     runs-on: ubuntu-latest
     environment: production
-    permissions:
-      contents: read
-      id-token: write
     steps:
       - name: Check out deployment configuration
         uses: actions/checkout@v6
 
-      - name: Configure AWS credentials with GitHub OIDC
-        uses: aws-actions/configure-aws-credentials@v6.2.3
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-
-      - name: Verify assumed AWS identity
-        run: aws sts get-caller-identity
-
-      - name: Deploy current SHA with SSM and verify liveness
+      - name: Configure SSH
         shell: bash
         env:
-          EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$EC2_SSH_PRIVATE_KEY" > "$HOME/.ssh/backend-production"
+          chmod 600 "$HOME/.ssh/backend-production"
+
+          if [ -n "$EC2_KNOWN_HOSTS" ]; then
+            printf '%s\n' "$EC2_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          else
+            ssh-keyscan -H "$EC2_HOST" > "$HOME/.ssh/known_hosts"
+          fi
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Copy production Compose file
+        shell: bash
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          set -euo pipefail
+          scp -i "$HOME/.ssh/backend-production" \
+            docker-compose.prod.yml \
+            "${EC2_USER}@${EC2_HOST}:/opt/language-learning-backend/docker-compose.prod.yml"
+
+      - name: Deploy current SHA and verify liveness
+        shell: bash
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
           BACKEND_IMAGE: ${{ needs.publish.outputs.image }}
         run: |
           set -euo pipefail
-
-          cat > deploy-backend.sh <<'REMOTE'
-          #!/usr/bin/env bash
+          ssh -i "$HOME/.ssh/backend-production" "${EC2_USER}@${EC2_HOST}" \
+            bash -s -- "$BACKEND_IMAGE" "$GITHUB_SHA" <<'REMOTE'
           set -euo pipefail
 
           readonly deployment_dir=/opt/language-learning-backend
           readonly backend_image="$1"
           readonly backend_image_tag="$2"
-          readonly compose_base64="$3"
-          readonly deployment_user=ubuntu
-          compose_temp=""
 
-          cleanup() {
-            if [ -n "$compose_temp" ] && [ -f "$compose_temp" ]; then
-              rm -f "$compose_temp"
-            fi
-          }
-          trap cleanup EXIT
+          cd "$deployment_dir"
+          test -f docker-compose.prod.yml
+          test -f .env
 
-          run_as_deployment_user() {
-            runuser -u "$deployment_user" -- bash -c \
-              'set -euo pipefail; cd "$1"; shift; exec "$@"' \
-              bash "$deployment_dir" "$@"
-          }
-
-          test -d "$deployment_dir"
-          test -f "$deployment_dir/.env"
-
-          compose_temp=$(mktemp "$deployment_dir/.docker-compose.prod.yml.XXXXXX")
-          printf '%s' "$compose_base64" | base64 --decode > "$compose_temp"
-          chown "$deployment_user:$deployment_user" "$compose_temp"
-          chmod 0644 "$compose_temp"
-          mv -f "$compose_temp" "$deployment_dir/docker-compose.prod.yml"
-          compose_temp=""
-
-          run_as_deployment_user env \
-            BACKEND_IMAGE="$backend_image" BACKEND_IMAGE_TAG="$backend_image_tag" \
+          BACKEND_IMAGE="$backend_image" BACKEND_IMAGE_TAG="$backend_image_tag" \
             docker compose -f docker-compose.prod.yml --env-file .env pull backend
 
-          run_as_deployment_user env \
-            BACKEND_IMAGE="$backend_image" BACKEND_IMAGE_TAG="$backend_image_tag" \
-            docker compose -f docker-compose.prod.yml --env-file .env \
-            up -d --no-deps backend
+          BACKEND_IMAGE="$backend_image" BACKEND_IMAGE_TAG="$backend_image_tag" \
+            docker compose -f docker-compose.prod.yml --env-file .env up -d
 
-          run_as_deployment_user env \
-            BACKEND_IMAGE="$backend_image" BACKEND_IMAGE_TAG="$backend_image_tag" \
+          BACKEND_IMAGE="$backend_image" BACKEND_IMAGE_TAG="$backend_image_tag" \
             docker compose -f docker-compose.prod.yml --env-file .env ps
 
           for attempt in $(seq 1 30); do
@@ -175,94 +167,9 @@ jobs:
           done
 
           echo "Backend liveness check failed after 30 attempts." >&2
-          run_as_deployment_user env \
-            BACKEND_IMAGE="$backend_image" BACKEND_IMAGE_TAG="$backend_image_tag" \
+          BACKEND_IMAGE="$backend_image" BACKEND_IMAGE_TAG="$backend_image_tag" \
             docker compose -f docker-compose.prod.yml --env-file .env ps >&2
-          run_as_deployment_user env \
-            BACKEND_IMAGE="$backend_image" BACKEND_IMAGE_TAG="$backend_image_tag" \
-            docker compose -f docker-compose.prod.yml --env-file .env \
-            logs --tail 100 backend >&2
+          BACKEND_IMAGE="$backend_image" BACKEND_IMAGE_TAG="$backend_image_tag" \
+            docker compose -f docker-compose.prod.yml --env-file .env logs --tail 100 backend >&2
           exit 1
           REMOTE
-
-          compose_base64=$(base64 --wrap=0 docker-compose.prod.yml)
-          script_base64=$(base64 --wrap=0 deploy-backend.sh)
-          remote_command=$(printf \
-            "printf '%%s' '%s' | base64 --decode > /tmp/deploy-language-learning-backend.sh && chmod 0700 /tmp/deploy-language-learning-backend.sh && /tmp/deploy-language-learning-backend.sh '%s' '%s' '%s'; result=\$?; rm -f /tmp/deploy-language-learning-backend.sh; exit \$result" \
-            "$script_base64" "$BACKEND_IMAGE" "$GITHUB_SHA" "$compose_base64")
-          jq -n --arg command "$remote_command" '{commands: [$command]}' > ssm-parameters.json
-
-          command_id=$(aws ssm send-command \
-            --instance-ids "$EC2_INSTANCE_ID" \
-            --document-name AWS-RunShellScript \
-            --comment "Deploy language-learning backend ${GITHUB_SHA}" \
-            --parameters file://ssm-parameters.json \
-            --query 'Command.CommandId' \
-            --output text)
-          echo "SSM command submitted: $command_id"
-
-          terminal_status=""
-          for attempt in $(seq 1 60); do
-            set +e
-            invocation=$(aws ssm get-command-invocation \
-              --command-id "$command_id" \
-              --instance-id "$EC2_INSTANCE_ID" \
-              --output json 2>ssm-get-error.txt)
-            get_status=$?
-            set -e
-
-            if [ "$get_status" -ne 0 ]; then
-              echo "SSM invocation is not available yet (poll ${attempt}/60)."
-              cat ssm-get-error.txt
-              sleep 5
-              continue
-            fi
-
-            status=$(jq -r '.Status' <<< "$invocation")
-            echo "SSM invocation status: $status (poll ${attempt}/60)"
-            case "$status" in
-              Success)
-                terminal_status="$status"
-                break
-                ;;
-              Failed|Cancelled|TimedOut|Cancelling|DeliveryTimedOut|ExecutionTimedOut|Undeliverable|Terminated|InvalidPlatform|AccessDenied)
-                terminal_status="$status"
-                break
-                ;;
-              Pending|InProgress|Delayed)
-                sleep 5
-                ;;
-              *)
-                echo "Unexpected SSM invocation status: $status" >&2
-                terminal_status="$status"
-                break
-                ;;
-            esac
-          done
-
-          set +e
-          aws ssm get-command-invocation \
-            --command-id "$command_id" \
-            --instance-id "$EC2_INSTANCE_ID" \
-            --output json > ssm-final.json 2>ssm-final-error.txt
-          final_get_status=$?
-          set -e
-
-          echo "===== Final SSM invocation ====="
-          if [ "$final_get_status" -eq 0 ]; then
-            final_status=$(jq -r '.Status' ssm-final.json)
-            echo "Status: $final_status"
-            echo "===== Remote stdout ====="
-            jq -r '.StandardOutputContent // ""' ssm-final.json
-            echo "===== Remote stderr =====" >&2
-            jq -r '.StandardErrorContent // ""' ssm-final.json >&2
-          else
-            echo "Unable to retrieve the final SSM invocation." >&2
-            cat ssm-final-error.txt >&2
-            exit 1
-          fi
-
-          if [ "$terminal_status" != "Success" ] || [ "$final_status" != "Success" ]; then
-            echo "Backend deployment failed with SSM status: $final_status" >&2
-            exit 1
-          fi
