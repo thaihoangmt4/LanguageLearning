@@ -57,38 +57,93 @@ public sealed class GenerateExercisesCommandHandler(
             ?? throw new InvalidOperationException(ExerciseGenerationSettingsErrors.NotFound);
         logger.LogInformation("Exercise generation job started");
 
-        var totalLessons = await dbContext.Lessons.AsNoTracking()
-            .CountAsync(x => x.Status == LessonStatus.Published && x.Unit.Course.IsPublished, cancellationToken);
-
-        var candidates = await dbContext.Lessons.AsNoTracking()
-            .Where(x => x.Status == LessonStatus.Published && x.Unit.Course.IsPublished)
-            .Select(x => new Candidate(
-                x.Id,
-                dbContext.Exercises.Count(exercise => exercise.LessonId == x.Id && exercise.IsActive),
-                dbContext.Exercises.Where(exercise => exercise.LessonId == x.Id)
-                    .Select(exercise => (int?)exercise.DisplayOrder).Max() ?? 0))
-            .Where(x => x.CurrentExerciseCount < settings.MinimumExerciseThreshold)
+        var publishedCourseIds = await dbContext.Courses
+            .AsNoTracking()
+            .Where(course => course.IsPublished)
+            .Select(course => course.Id)
             .ToListAsync(cancellationToken);
+        logger.LogDebug(
+            "Published courses loaded with PublishedCourseCount {PublishedCourseCount}",
+            publishedCourseIds.Count);
 
-        var candidateIds = candidates.Select(x => x.LessonId).ToArray();
-        var lessonContexts = await dbContext.Lessons.AsNoTracking()
-            .Where(x => candidateIds.Contains(x.Id))
-            .Select(x => new LessonMetadata(
-                x.Id,
-                x.Code,
-                x.Title,
-                x.Description,
-                x.LearningObjectiveSummary,
-                x.DifficultyLevel))
-            .ToDictionaryAsync(x => x.LessonId, cancellationToken);
+        var eligibleUnitIds = publishedCourseIds.Count == 0
+            ? []
+            : await dbContext.Units
+                .AsNoTracking()
+                .Where(unit => publishedCourseIds.Contains(unit.CourseId))
+                .Select(unit => unit.Id)
+                .ToListAsync(cancellationToken);
+        logger.LogDebug(
+            "Eligible units loaded with UnitCount {UnitCount}",
+            eligibleUnitIds.Count);
 
-        var persistedHashes = await dbContext.Exercises.AsNoTracking()
-            .Where(x => candidateIds.Contains(x.LessonId) && x.ContentHash != null)
-            .Select(x => new { x.LessonId, ContentHash = x.ContentHash! })
-            .ToListAsync(cancellationToken);
-        var hashesByLesson = persistedHashes
-            .GroupBy(x => x.LessonId)
-            .ToDictionary(x => x.Key, x => x.Select(value => value.ContentHash).ToHashSet());
+        var publishedLessons = eligibleUnitIds.Count == 0
+            ? []
+            : await dbContext.Lessons
+                .AsNoTracking()
+                .Where(lesson =>
+                    eligibleUnitIds.Contains(lesson.UnitId) &&
+                    lesson.Status == LessonStatus.Published)
+                .Select(lesson => new LessonMetadata(
+                    lesson.Id,
+                    lesson.Code,
+                    lesson.Title,
+                    lesson.Description,
+                    lesson.LearningObjectiveSummary,
+                    lesson.DifficultyLevel))
+                .ToListAsync(cancellationToken);
+        logger.LogDebug(
+            "Published lessons loaded with LessonCount {LessonCount}",
+            publishedLessons.Count);
+
+        var publishedLessonIds = publishedLessons.Select(lesson => lesson.LessonId).ToList();
+        var exerciseRows = publishedLessonIds.Count == 0
+            ? []
+            : await dbContext.Exercises
+                .AsNoTracking()
+                .Where(exercise => publishedLessonIds.Contains(exercise.LessonId))
+                .Select(exercise => new ExerciseRow(
+                    exercise.LessonId,
+                    exercise.IsActive,
+                    exercise.DisplayOrder,
+                    exercise.ContentHash))
+                .ToListAsync(cancellationToken);
+        logger.LogDebug(
+            "Exercises loaded with ExerciseCount {ExerciseCount}",
+            exerciseRows.Count);
+
+        var exerciseRowsByLesson = exerciseRows
+            .GroupBy(exercise => exercise.LessonId)
+            .ToDictionary(group => group.Key, group => group.ToList());
+        var candidates = new List<Candidate>();
+        var lessonContexts = new Dictionary<Guid, LessonMetadata>();
+        var hashesByLesson = new Dictionary<Guid, HashSet<string>>();
+
+        foreach (var lesson in publishedLessons)
+        {
+            var lessonExercises = exerciseRowsByLesson.GetValueOrDefault(lesson.LessonId) ?? [];
+            var currentExerciseCount = lessonExercises.Count(exercise => exercise.IsActive);
+            if (currentExerciseCount >= settings.MinimumExerciseThreshold)
+                continue;
+
+            var maximumDisplayOrder = lessonExercises.Count == 0
+                ? 0
+                : lessonExercises.Max(exercise => exercise.DisplayOrder);
+            candidates.Add(new Candidate(lesson.LessonId, currentExerciseCount, maximumDisplayOrder));
+            lessonContexts.Add(lesson.LessonId, lesson);
+            hashesByLesson.Add(
+                lesson.LessonId,
+                lessonExercises
+                    .Where(exercise => exercise.ContentHash is not null)
+                    .Select(exercise => exercise.ContentHash!)
+                    .ToHashSet());
+        }
+
+        logger.LogDebug(
+            "Generation candidates calculated with CandidateCount {CandidateCount}",
+            candidates.Count);
+
+        var totalLessons = publishedLessons.Count;
 
         var processed = 0;
         var failed = 0;
@@ -268,6 +323,11 @@ public sealed class GenerateExercisesCommandHandler(
         value.Length <= maximumLength ? value : value[..maximumLength];
 
     private sealed record Candidate(Guid LessonId, int CurrentExerciseCount, int MaximumDisplayOrder);
+    private sealed record ExerciseRow(
+        Guid LessonId,
+        bool IsActive,
+        int DisplayOrder,
+        string? ContentHash);
     private sealed record LessonMetadata(
         Guid LessonId,
         string Code,

@@ -46,6 +46,50 @@ public sealed class ExerciseGenerationTests
     }
 
     [Fact]
+    public async Task CandidateLoading_RequiresPublishedCourseAndPublishedLesson()
+    {
+        await using var db = CreateDb();
+        var unpublishedCourseLesson = await SeedLessonAsync(db, "UNPUBLISHED-COURSE", 0);
+        unpublishedCourseLesson.Unit.Course.IsPublished = false;
+        var draftLesson = await SeedLessonAsync(db, "DRAFT-LESSON", 0);
+        draftLesson.Status = LessonStatus.Draft;
+        await SeedLessonAsync(db, "ELIGIBLE", 0);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var generator = new StubGenerator(context => ValidBatch(context.RequestedCount));
+
+        var result = await CreateHandler(db, generator, Options(target: 1, minimum: 1, maximum: 1, batchSize: 1))
+            .Handle(new(), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1, result.Value.EligibleLessons);
+        Assert.Equal(1, result.Value.ProcessedLessons);
+        Assert.Equal(0, result.Value.SkippedLessons);
+        Assert.Equal(1, generator.CallCount);
+    }
+
+    [Fact]
+    public async Task CandidateCalculation_CountsOnlyActiveExercisesAndUsesMaximumDisplayOrderFromAllExercises()
+    {
+        await using var db = CreateDb();
+        var lesson = await SeedLessonAsync(db, "INACTIVE", 0);
+        var inactiveExercise = Exercise(lesson.Id, 9);
+        inactiveExercise.IsActive = false;
+        db.Exercises.Add(inactiveExercise);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var generator = new StubGenerator(context => ValidBatch(context.RequestedCount));
+
+        var result = await CreateHandler(db, generator, Options(target: 1, minimum: 1, maximum: 1, batchSize: 1))
+            .Handle(new(), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1, result.Value.EligibleLessons);
+        var generatedExercise = await db.Exercises.SingleAsync(
+            exercise => exercise.LessonId == lesson.Id && exercise.IsActive,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(10, generatedExercise.DisplayOrder);
+    }
+
+    [Fact]
     public async Task BelowThreshold_RequestsTargetQuantityInConfiguredBatches()
     {
         await using var db = CreateDb();
