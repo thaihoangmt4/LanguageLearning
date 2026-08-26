@@ -28,6 +28,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using Serilog;
+using Serilog.Core;
+using Serilog.Events;
 using Serilog.Formatting.Json;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
@@ -454,13 +456,23 @@ public static class ServiceCollectionExtensions
     /// Configures Serilog for structured logging.
     /// Called from Program.cs before builder.Build().
     /// </summary>
-    public static void ConfigureSerilog(
+    public static LoggingLevelSwitch ConfigureSerilog(
         this IHostBuilder hostBuilder,
         IConfiguration configuration,
         IHostEnvironment environment)
     {
+        var configuredMinimumLevel = configuration["Serilog:MinimumLevel:Default"];
+        var bootstrapMinimumLevel = Enum.TryParse<LogEventLevel>(
+            configuredMinimumLevel,
+            ignoreCase: true,
+            out var parsedMinimumLevel)
+            ? parsedMinimumLevel
+            : LogEventLevel.Information;
+        var levelSwitch = new LoggingLevelSwitch(bootstrapMinimumLevel);
+
         var loggerConfig = new LoggerConfiguration()
             .ReadFrom.Configuration(configuration)
+            .MinimumLevel.ControlledBy(levelSwitch)
             .Enrich.FromLogContext()
             .Enrich.WithMachineName()
             .Enrich.WithEnvironmentName()
@@ -483,6 +495,7 @@ public static class ServiceCollectionExtensions
         Log.Logger = loggerConfig.CreateLogger();
 
         hostBuilder.UseSerilog();
+        return levelSwitch;
     }
 
     /// <summary>

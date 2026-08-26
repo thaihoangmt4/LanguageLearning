@@ -27,12 +27,12 @@ public sealed record UserProfileResponse
 
     public DateTime? UpdatedAt { get; init; }
 
-    public static UserProfileResponse From(UserProfile profile)
+    public static UserProfileResponse From(UserProfile profile, string email)
     {
         return new UserProfileResponse
         {
             Id = profile.Id,
-            Email = profile.User.Email,
+            Email = email,
             DisplayName = profile.DisplayName,
             Username = profile.Username,
             NativeLanguageCode = profile.NativeLanguageCode,

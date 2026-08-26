@@ -28,13 +28,18 @@ public sealed class GetMyProfileQuery : IRequest<Result<UserProfileResponse>>
         {
             var profile = await _dbContext.UserProfiles
                 .AsNoTracking()
-                .Include(up => up.User)
                 .FirstOrDefaultAsync(up => up.UserId == request.UserId, cancellationToken);
 
             if (profile is null)
                 return Result<UserProfileResponse>.Failure("user_profile.not_found");
 
-            return Result<UserProfileResponse>.Success(UserProfileResponse.From(profile));
+            var email = await _dbContext.Users
+                .AsNoTracking()
+                .Where(user => user.Id == request.UserId)
+                .Select(user => user.Email)
+                .SingleAsync(cancellationToken);
+
+            return Result<UserProfileResponse>.Success(UserProfileResponse.From(profile, email));
         }
     }
 }

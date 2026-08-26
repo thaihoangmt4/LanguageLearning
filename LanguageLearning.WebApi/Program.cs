@@ -3,8 +3,9 @@ using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Host.ConfigureSerilog(builder.Configuration, builder.Environment);
+var loggingLevelSwitch = builder.Host.ConfigureSerilog(builder.Configuration, builder.Environment);
 
+builder.Services.AddSingleton(loggingLevelSwitch);
 builder.Services.AddApplicationServices(builder.Configuration, builder.Environment);
 builder.Services.AddOpenTelemetry(builder.Configuration, builder.Environment);
 
@@ -15,6 +16,7 @@ app.UseApplicationPipeline();
 try
 {
     Log.Information("Application starting up.");
+    await app.Services.RestoreSystemSettingsAsync(app.Lifetime.ApplicationStopping);
     await app.SeedDataAsync(app.Lifetime.ApplicationStopping);
     await app.RunAsync();
 }

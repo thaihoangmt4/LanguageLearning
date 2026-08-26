@@ -59,7 +59,6 @@ public sealed class UpdateUserProfileCommand : IRequest<Result<UserProfileRespon
             await _validator.ValidateAndThrowAsync(request, cancellationToken);
 
             var profile = await _dbContext.UserProfiles
-                .Include(up => up.User)
                 .FirstOrDefaultAsync(up => up.UserId == request.UserId, cancellationToken);
 
             if (profile is null)
@@ -93,7 +92,13 @@ public sealed class UpdateUserProfileCommand : IRequest<Result<UserProfileRespon
                 return Result<UserProfileResponse>.Failure("user_profile.username_already_exists");
             }
 
-            return Result<UserProfileResponse>.Success(UserProfileResponse.From(profile));
+            var email = await _dbContext.Users
+                .AsNoTracking()
+                .Where(user => user.Id == request.UserId)
+                .Select(user => user.Email)
+                .SingleAsync(cancellationToken);
+
+            return Result<UserProfileResponse>.Success(UserProfileResponse.From(profile, email));
         }
     }
 }

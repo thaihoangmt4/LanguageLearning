@@ -1,17 +1,67 @@
 namespace LanguageLearning.WebApi.Extensions;
 
 using System.Diagnostics;
+using LanguageLearning.Common.Entities.Settings;
+using LanguageLearning.Common.Enums;
+using LanguageLearning.Common.Persistence;
 using LanguageLearning.WebApi.Configuration;
+using LanguageLearning.WebApi.Features.System.Settings;
 using LanguageLearning.WebApi.Persistence;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Serilog;
+using Serilog.Core;
 
 /// <summary>
 /// Extension methods for configuring the HTTP request pipeline.
 /// </summary>
 public static class ApplicationBuilderExtensions
 {
+    public static async Task RestoreSystemSettingsAsync(
+        this IServiceProvider services,
+        CancellationToken cancellationToken)
+    {
+        var logger = services.GetRequiredService<ILoggerFactory>()
+            .CreateLogger("SystemSettingsStartup");
+
+        try
+        {
+            await using var scope = services.CreateAsyncScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var minimumLogLevel = await dbContext.SystemSettings
+                .AsNoTracking()
+                .Where(settings => settings.Id == SystemSettings.SingletonId)
+                .Select(settings => (SystemLogLevel?)settings.MinimumLogLevel)
+                .SingleOrDefaultAsync(cancellationToken);
+
+            if (minimumLogLevel is null)
+            {
+                logger.LogWarning(
+                    "System settings could not be restored because the singleton row was not found; retaining bootstrap MinimumLogLevel {MinimumLogLevel}",
+                    services.GetRequiredService<LoggingLevelSwitch>().MinimumLevel);
+                return;
+            }
+
+            services.GetRequiredService<LoggingLevelSwitch>().MinimumLevel =
+                minimumLogLevel.Value.ToSerilogLevel();
+            logger.LogInformation(
+                "Restored persisted system settings with MinimumLogLevel {MinimumLogLevel}",
+                minimumLogLevel.Value);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(
+                exception,
+                "System settings could not be restored; retaining bootstrap MinimumLogLevel {MinimumLogLevel}",
+                services.GetRequiredService<LoggingLevelSwitch>().MinimumLevel);
+        }
+    }
+
     public static async Task SeedDataAsync(this WebApplication app, CancellationToken cancellationToken)
     {
         await using var scope = app.Services.CreateAsyncScope();

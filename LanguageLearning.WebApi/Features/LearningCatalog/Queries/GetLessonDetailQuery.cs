@@ -31,39 +31,73 @@ public sealed class GetLessonDetailQuery : IRequest<Result<GetLessonDetailRespon
                 .AsNoTracking()
                 .Where(lesson =>
                     lesson.Id == request.LessonId
-                    && lesson.Status == LessonStatus.Published
-                    && lesson.Unit.Course.IsPublished)
-                .Select(lesson => new GetLessonDetailResponse
-                {
-                    Id = lesson.Id,
-                    Code = lesson.Code,
-                    Title = lesson.Title,
-                    Description = lesson.Description,
-                    LearningObjectiveSummary = lesson.LearningObjectiveSummary,
-                    EstimatedDurationMinutes = lesson.EstimatedDurationMinutes,
-                    DifficultyLevel = lesson.DifficultyLevel,
-                    Course = new LessonCourseResponse
-                    {
-                        Id = lesson.Unit.Course.Id,
-                        Code = lesson.Unit.Course.Code,
-                        Title = lesson.Unit.Course.Title,
-                        CefrLevel = lesson.Unit.Course.CefrLevel
-                    },
-                    Unit = new LessonUnitResponse
-                    {
-                        Id = lesson.Unit.Id,
-                        Code = lesson.Unit.Code,
-                        Title = lesson.Unit.Title
-                    }
-                })
+                    && lesson.Status == LessonStatus.Published)
+                .Select(lesson => new LessonRow(
+                    lesson.Id,
+                    lesson.UnitId,
+                    lesson.Code,
+                    lesson.Title,
+                    lesson.Description,
+                    lesson.LearningObjectiveSummary,
+                    lesson.EstimatedDurationMinutes,
+                    lesson.DifficultyLevel))
                 .FirstOrDefaultAsync(cancellationToken);
 
             if (lesson is null)
-            {
                 return Result<GetLessonDetailResponse>.Failure("lessons.not_found");
-            }
 
-            return Result<GetLessonDetailResponse>.Success(lesson);
+            var unit = await _dbContext.Units
+                .AsNoTracking()
+                .Where(unit => unit.Id == lesson.UnitId)
+                .Select(unit => new UnitRow(unit.Id, unit.CourseId, unit.Code, unit.Title))
+                .SingleAsync(cancellationToken);
+
+            var course = await _dbContext.Courses
+                .AsNoTracking()
+                .Where(course => course.Id == unit.CourseId && course.IsPublished)
+                .Select(course => new CourseRow(course.Id, course.Code, course.Title, course.CefrLevel))
+                .SingleOrDefaultAsync(cancellationToken);
+
+            if (course is null)
+                return Result<GetLessonDetailResponse>.Failure("lessons.not_found");
+
+            return Result<GetLessonDetailResponse>.Success(new GetLessonDetailResponse
+            {
+                Id = lesson.Id,
+                Code = lesson.Code,
+                Title = lesson.Title,
+                Description = lesson.Description,
+                LearningObjectiveSummary = lesson.LearningObjectiveSummary,
+                EstimatedDurationMinutes = lesson.EstimatedDurationMinutes,
+                DifficultyLevel = lesson.DifficultyLevel,
+                Course = new LessonCourseResponse
+                {
+                    Id = course.Id,
+                    Code = course.Code,
+                    Title = course.Title,
+                    CefrLevel = course.CefrLevel
+                },
+                Unit = new LessonUnitResponse
+                {
+                    Id = unit.Id,
+                    Code = unit.Code,
+                    Title = unit.Title
+                }
+            });
         }
+
+        private sealed record LessonRow(
+            Guid Id,
+            Guid UnitId,
+            string Code,
+            string Title,
+            string? Description,
+            string? LearningObjectiveSummary,
+            int EstimatedDurationMinutes,
+            DifficultyLevel DifficultyLevel);
+
+        private sealed record UnitRow(Guid Id, Guid CourseId, string Code, string Title);
+
+        private sealed record CourseRow(Guid Id, string Code, string Title, CefrLevel CefrLevel);
     }
 }
