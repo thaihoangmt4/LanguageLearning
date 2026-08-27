@@ -60,6 +60,15 @@ public sealed class DeepSeekExerciseGenerator(
             exercise.Question ?? string.Empty,
             exercise.Options ?? [],
             exercise.CorrectAnswer,
-            exercise.Explanation);
+            exercise.Explanation,
+            exercise.PronunciationText,
+            exercise.ImageMatches?.Select(match => new GeneratedImageMatch(
+                match.ImageMediaId,
+                match.Target ?? string.Empty)).ToArray(),
+            exercise.OrderedSegments,
+            exercise.Categories?.Select(category => new GeneratedCategory(
+                category.Name ?? string.Empty,
+                category.Items ?? [])).ToArray(),
+            exercise.ReferenceText);
     }
 }

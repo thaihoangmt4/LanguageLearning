@@ -33,4 +33,17 @@ internal sealed record DeepSeekGeneratedExercise(
     [property: JsonPropertyName("question")] string? Question,
     [property: JsonPropertyName("options")] IReadOnlyList<string>? Options,
     [property: JsonPropertyName("correctAnswer")] string? CorrectAnswer,
-    [property: JsonPropertyName("explanation")] string? Explanation);
+    [property: JsonPropertyName("explanation")] string? Explanation,
+    [property: JsonPropertyName("pronunciationText")] string? PronunciationText,
+    [property: JsonPropertyName("imageMatches")] IReadOnlyList<DeepSeekGeneratedImageMatch>? ImageMatches,
+    [property: JsonPropertyName("orderedSegments")] IReadOnlyList<string>? OrderedSegments,
+    [property: JsonPropertyName("categories")] IReadOnlyList<DeepSeekGeneratedCategory>? Categories,
+    [property: JsonPropertyName("referenceText")] string? ReferenceText);
+
+internal sealed record DeepSeekGeneratedImageMatch(
+    [property: JsonPropertyName("imageMediaId")] Guid ImageMediaId,
+    [property: JsonPropertyName("target")] string? Target);
+
+internal sealed record DeepSeekGeneratedCategory(
+    [property: JsonPropertyName("name")] string? Name,
+    [property: JsonPropertyName("items")] IReadOnlyList<string>? Items);

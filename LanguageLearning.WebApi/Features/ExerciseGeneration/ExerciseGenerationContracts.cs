@@ -10,7 +10,14 @@ public sealed record ExerciseGenerationContext(
     string? LearningObjective,
     DifficultyLevel Difficulty,
     IReadOnlyList<ExerciseType> SupportedExerciseTypes,
-    int RequestedCount);
+    int RequestedCount,
+    IReadOnlyList<ExerciseGenerationImageAsset>? AvailableImages = null);
+
+public sealed record ExerciseGenerationImageAsset(
+    Guid ImageMediaId,
+    string AltText,
+    string Word,
+    string Meaning);
 
 public sealed record GeneratedExerciseBatch(IReadOnlyList<GeneratedExercise> Exercises)
 {
@@ -22,7 +29,15 @@ public sealed record GeneratedExercise(
     string Question,
     IReadOnlyList<string> Options,
     string? CorrectAnswer,
-    string? Explanation);
+    string? Explanation,
+    string? PronunciationText = null,
+    IReadOnlyList<GeneratedImageMatch>? ImageMatches = null,
+    IReadOnlyList<string>? OrderedSegments = null,
+    IReadOnlyList<GeneratedCategory>? Categories = null,
+    string? ReferenceText = null);
+
+public sealed record GeneratedImageMatch(Guid ImageMediaId, string Target);
+public sealed record GeneratedCategory(string Name, IReadOnlyList<string> Items);
 
 public interface IExerciseGenerator
 {

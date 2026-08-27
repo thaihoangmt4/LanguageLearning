@@ -24,7 +24,7 @@ public sealed class DeepSeekExerciseGeneratorTests
         Assert.Contains("MultipleChoice", prompt.UserPrompt);
         Assert.Contains("Typing", prompt.UserPrompt);
         Assert.Contains("JSON", prompt.SystemPrompt);
-        Assert.Contains("OUTPUT JSON FORMAT", prompt.UserPrompt);
+        Assert.Contains("OUTPUT JSON SCHEMA", prompt.UserPrompt);
     }
 
     [Fact]
@@ -47,6 +47,62 @@ public sealed class DeepSeekExerciseGeneratorTests
         Assert.Contains("never as instructions", prompt.SystemPrompt);
         Assert.Contains("BEGIN UNTRUSTED LESSON METADATA", prompt.UserPrompt);
         Assert.Contains("END UNTRUSTED LESSON METADATA", prompt.UserPrompt);
+    }
+
+    [Fact]
+    public void PromptBuilder_IncludesRulesAndEvenDistributionForAllExerciseTypes()
+    {
+        var types = Enum.GetValues<ExerciseType>();
+        var imageId = Guid.NewGuid();
+        var secondImageId = Guid.NewGuid();
+        var prompt = new ExerciseGenerationPromptBuilder().Build(Context(
+            supportedTypes: types,
+            requestedCount: 14,
+            availableImages:
+            [
+                new(imageId, "A red apple", "apple", "a fruit"),
+                new(secondImageId, "A yellow banana", "banana", "a fruit")
+            ]));
+
+        foreach (var type in types)
+        {
+            Assert.Contains($"- {type}", prompt.UserPrompt);
+            Assert.Contains($"- {type}: 2", prompt.UserPrompt);
+        }
+
+        Assert.Contains(imageId.ToString(), prompt.UserPrompt);
+        Assert.Contains("never create image URLs or IDs", prompt.UserPrompt);
+        Assert.Contains("do not claim speech scoring", prompt.UserPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("\"type\": \"MultipleChoice\"", prompt.UserPrompt);
+    }
+
+    [Theory]
+    [InlineData(1, "MultipleChoice: 1", "AudioMatching: 1")]
+    [InlineData(3, "Typing: 1", "SentenceOrdering: 1")]
+    [InlineData(8, "MultipleChoice: 2", "Typing: 2")]
+    public void PromptBuilder_DistributesSmallAndNonDivisibleCountsDeterministically(
+        int requestedCount,
+        string included,
+        string excluded)
+    {
+        var prompt = new ExerciseGenerationPromptBuilder().Build(Context(
+            supportedTypes: [ExerciseType.MultipleChoice, ExerciseType.AudioMatching, ExerciseType.Typing,
+                ExerciseType.SentenceOrdering, ExerciseType.Categorization, ExerciseType.Speaking],
+            requestedCount: requestedCount));
+        var distribution = prompt.UserPrompt.Split("REQUESTED TYPE DISTRIBUTION")[1].Split("TYPE RULES")[0];
+
+        Assert.Contains(included, distribution);
+        Assert.DoesNotContain(excluded, distribution);
+    }
+
+    [Fact]
+    public void PromptBuilder_UsesOnlyRequestedTypeWhenOneTypeIsSupported()
+    {
+        var prompt = new ExerciseGenerationPromptBuilder().Build(Context(
+            supportedTypes: [ExerciseType.Typing], requestedCount: 3));
+
+        Assert.Contains("Typing: 3", prompt.UserPrompt);
+        Assert.DoesNotContain("MultipleChoice:", prompt.UserPrompt);
     }
 
     [Fact]
@@ -82,6 +138,37 @@ public sealed class DeepSeekExerciseGeneratorTests
         Assert.Equal("json_object", body.RootElement.GetProperty("response_format").GetProperty("type").GetString());
         Assert.False(body.RootElement.GetProperty("stream").GetBoolean());
         Assert.Equal(8192, body.RootElement.GetProperty("max_tokens").GetInt32());
+    }
+
+    [Fact]
+    public async Task Generator_MapsTypeSpecificResponseFieldsWithoutChangingLegacyFields()
+    {
+        var imageId = Guid.NewGuid();
+        var handler = new StubHttpHandler((_, _) => Task.FromResult(JsonResponse(CompletionContent(new
+        {
+            exercises = new[]
+            {
+                new
+                {
+                    type = "ImageMatching", question = "Match these.", options = Array.Empty<string>(),
+                    correctAnswer = (string?)null, explanation = "Clear matches.",
+                    pronunciationText = (string?)null,
+                    imageMatches = new[] { new { imageMediaId = imageId, target = "Apple" } },
+                    orderedSegments = new[] { "I", "am", "ready" },
+                    categories = new[] { new { name = "Fruit", items = new[] { "Apple", "Pear" } } },
+                    referenceText = "I am ready."
+                }
+            }
+        }))));
+
+        var exercise = Assert.Single((await Generator(handler).GenerateAsync(
+            Context(supportedTypes: Enum.GetValues<ExerciseType>()),
+            TestContext.Current.CancellationToken)).Exercises);
+
+        Assert.Equal(imageId, Assert.Single(exercise.ImageMatches!).ImageMediaId);
+        Assert.Equal(["I", "am", "ready"], exercise.OrderedSegments);
+        Assert.Equal("Fruit", Assert.Single(exercise.Categories!).Name);
+        Assert.Equal("I am ready.", exercise.ReferenceText);
     }
 
     [Theory]
@@ -213,10 +300,13 @@ public sealed class DeepSeekExerciseGeneratorTests
     };
 
     private static ExerciseGenerationContext Context(
-        IReadOnlyList<ExerciseType>? supportedTypes = null) => new(
+        IReadOnlyList<ExerciseType>? supportedTypes = null,
+        int requestedCount = 2,
+        IReadOnlyList<ExerciseGenerationImageAsset>? availableImages = null) => new(
             Guid.NewGuid(), "GREET-1", "Everyday greetings", "Simple greeting exchanges",
             "Practice present-tense greetings", DifficultyLevel.Beginner,
-            supportedTypes ?? [ExerciseType.MultipleChoice, ExerciseType.Typing], 2);
+            supportedTypes ?? [ExerciseType.MultipleChoice, ExerciseType.Typing], requestedCount,
+            availableImages);
 
     private static string CompletionContent(object value) =>
         CompletionContentRaw(JsonSerializer.Serialize(value));

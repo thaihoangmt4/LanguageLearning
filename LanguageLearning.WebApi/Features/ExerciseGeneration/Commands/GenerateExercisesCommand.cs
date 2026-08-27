@@ -32,8 +32,15 @@ public sealed class GenerateExercisesCommandHandler(
     ILogger<GenerateExercisesCommandHandler> logger)
     : IRequestHandler<GenerateExercisesCommand, Result<GenerateExercisesResult>>
 {
-    private static readonly ExerciseType[] GeneratedTypes =
-        [ExerciseType.MultipleChoice, ExerciseType.Typing];
+    private static readonly ExerciseType[] TextGeneratedTypes =
+    [
+        ExerciseType.MultipleChoice,
+        ExerciseType.AudioMatching,
+        ExerciseType.Typing,
+        ExerciseType.SentenceOrdering,
+        ExerciseType.Categorization,
+        ExerciseType.Speaking
+    ];
 
     public async Task<Result<GenerateExercisesResult>> Handle(
         GenerateExercisesCommand request,
@@ -96,6 +103,39 @@ public sealed class GenerateExercisesCommandHandler(
             "Published lessons loaded with LessonCount {LessonCount}",
             publishedLessons.Count);
 
+        var lessonDifficulties = publishedLessons
+            .Select(lesson => lesson.Difficulty)
+            .Distinct()
+            .ToArray();
+        var imageAssetRows = lessonDifficulties.Length == 0
+            ? []
+            : await dbContext.Vocabularies
+                .AsNoTracking()
+                .Where(vocabulary =>
+                    lessonDifficulties.Contains(vocabulary.DifficultyLevel) &&
+                    vocabulary.ImageUrl != null &&
+                    vocabulary.ImageUrl != "")
+                .OrderBy(vocabulary => vocabulary.Word)
+                .Take(200)
+                .Select(vocabulary => new ImageAssetRow(
+                    vocabulary.DifficultyLevel,
+                    vocabulary.Id,
+                    vocabulary.Meaning,
+                    vocabulary.Word,
+                    vocabulary.Meaning))
+                .ToListAsync(cancellationToken);
+        var imageAssetsByDifficulty = imageAssetRows
+            .GroupBy(row => row.Difficulty)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<ExerciseGenerationImageAsset>)group
+                    .Select(row => new ExerciseGenerationImageAsset(
+                        row.ImageMediaId, row.AltText, row.Word, row.Meaning))
+                    .ToArray());
+        logger.LogDebug(
+            "Image-backed vocabulary loaded with ImageAssetCount {ImageAssetCount}",
+            imageAssetRows.Count);
+
         var publishedLessonIds = publishedLessons.Select(lesson => lesson.LessonId).ToList();
         var exerciseRows = publishedLessonIds.Count == 0
             ? []
@@ -150,6 +190,8 @@ public sealed class GenerateExercisesCommandHandler(
         var requested = 0;
         var accepted = 0;
         var rejected = 0;
+        var generatedByType = Enum.GetValues<ExerciseType>().ToDictionary(type => type, _ => 0);
+        var acceptedByType = Enum.GetValues<ExerciseType>().ToDictionary(type => type, _ => 0);
 
         foreach (var candidate in candidates)
         {
@@ -170,8 +212,16 @@ public sealed class GenerateExercisesCommandHandler(
 
             var lessonAccepted = 0;
             var lessonRejected = 0;
+            var lessonGenerated = 0;
+            var lessonGeneratedByType = Enum.GetValues<ExerciseType>().ToDictionary(type => type, _ => 0);
+            var lessonAcceptedByType = Enum.GetValues<ExerciseType>().ToDictionary(type => type, _ => 0);
             var nextDisplayOrder = candidate.MaximumDisplayOrder;
             var providerFailed = false;
+            var availableImages = imageAssetsByDifficulty.GetValueOrDefault(lesson.Difficulty) ?? [];
+            var generatedTypes = availableImages.Count >= 2
+                ? Enum.GetValues<ExerciseType>()
+                : TextGeneratedTypes;
+            var availableImagesById = availableImages.ToDictionary(image => image.ImageMediaId);
 
             for (var offset = 0; offset < requiredCount; offset += settings.GenerationBatchSize)
             {
@@ -179,6 +229,10 @@ public sealed class GenerateExercisesCommandHandler(
                 var batchSize = Math.Min(settings.GenerationBatchSize, requiredCount - offset);
                 requested += batchSize;
                 GeneratedExerciseBatch generatedBatch;
+                var batchTypes = RotateTypes(generatedTypes, offset)
+                    .Take(Math.Min(batchSize, generatedTypes.Length))
+                    .ToArray();
+                var requestedByType = BuildDistribution(batchTypes, batchSize);
 
                 try
                 {
@@ -189,8 +243,9 @@ public sealed class GenerateExercisesCommandHandler(
                         lesson.Description,
                         lesson.LearningObjective,
                         lesson.Difficulty,
-                        GeneratedTypes,
-                        batchSize), cancellationToken);
+                        batchTypes,
+                        batchSize,
+                        availableImages), cancellationToken);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -205,7 +260,16 @@ public sealed class GenerateExercisesCommandHandler(
                     break;
                 }
 
+                lessonGenerated += generatedBatch.Exercises.Count;
+                foreach (var generated in generatedBatch.Exercises)
+                {
+                    if (!lessonGeneratedByType.TryGetValue(generated.Type, out var currentCount))
+                        continue;
+                    lessonGeneratedByType[generated.Type] = currentCount + 1;
+                    generatedByType[generated.Type]++;
+                }
                 var exercisesToPersist = new List<Exercise>();
+                var acceptedInBatchByType = batchTypes.ToDictionary(type => type, _ => 0);
                 foreach (var generated in generatedBatch.Exercises)
                 {
                     if (exercisesToPersist.Count >= batchSize)
@@ -215,7 +279,10 @@ public sealed class GenerateExercisesCommandHandler(
                     }
 
                     var validation = await generatedExerciseValidator.ValidateAsync(generated, cancellationToken);
-                    if (!validation.IsValid || !TryMapContent(generated, out var content))
+                    if (!batchTypes.Contains(generated.Type) ||
+                        acceptedInBatchByType[generated.Type] >= requestedByType[generated.Type] ||
+                        !validation.IsValid ||
+                        !TryMapContent(generated, availableImagesById, out var content))
                     {
                         lessonRejected++;
                         continue;
@@ -241,9 +308,7 @@ public sealed class GenerateExercisesCommandHandler(
                         LessonId = candidate.LessonId,
                         Type = generated.Type,
                         Title = Truncate(generated.Question.Trim(), 200),
-                        Instruction = generated.Type == ExerciseType.MultipleChoice
-                            ? "Choose the correct answer."
-                            : "Type the correct answer.",
+                        Instruction = InstructionFor(generated.Type),
                         Difficulty = lesson.Difficulty,
                         DisplayOrder = ++nextDisplayOrder,
                         ContentJson = serialized.Value,
@@ -252,6 +317,7 @@ public sealed class GenerateExercisesCommandHandler(
                         IsRequired = true,
                         IsActive = true
                     });
+                    acceptedInBatchByType[generated.Type]++;
                 }
 
                 if (exercisesToPersist.Count > 0)
@@ -259,6 +325,11 @@ public sealed class GenerateExercisesCommandHandler(
                     dbContext.Exercises.AddRange(exercisesToPersist);
                     await dbContext.SaveChangesAsync(cancellationToken);
                     lessonAccepted += exercisesToPersist.Count;
+                    foreach (var exercise in exercisesToPersist)
+                    {
+                        lessonAcceptedByType[exercise.Type]++;
+                        acceptedByType[exercise.Type]++;
+                    }
                 }
             }
 
@@ -267,9 +338,11 @@ public sealed class GenerateExercisesCommandHandler(
             rejected += lessonRejected;
 
             logger.LogInformation(
-                "Exercise generation lesson completed for LessonId {LessonId}, CurrentInventory {CurrentInventory}, RequestedCount {RequestedCount}, AcceptedCount {AcceptedCount}, RejectedCount {RejectedCount}, DurationMs {DurationMs}",
-                candidate.LessonId, candidate.CurrentExerciseCount, requiredCount, lessonAccepted,
-                lessonRejected, lessonStopwatch.ElapsedMilliseconds);
+                "Exercise generation lesson completed for LessonId {LessonId}, CurrentInventory {CurrentInventory}, RequestedCount {RequestedCount}, GeneratedCount {GeneratedCount}, ValidCount {ValidCount}, RejectedCount {RejectedCount}, GeneratedCountByExerciseType {@GeneratedCountByExerciseType}, ValidCountByExerciseType {@ValidCountByExerciseType}, DurationMs {DurationMs}",
+                candidate.LessonId, candidate.CurrentExerciseCount, requiredCount, lessonGenerated,
+                lessonAccepted, lessonRejected, NonZeroCounts(lessonGeneratedByType),
+                NonZeroCounts(lessonAcceptedByType),
+                lessonStopwatch.ElapsedMilliseconds);
         }
 
         var result = new GenerateExercisesResult(
@@ -282,15 +355,19 @@ public sealed class GenerateExercisesCommandHandler(
             rejected);
 
         logger.LogInformation(
-            "Exercise generation job completed with TotalLessons {TotalLessons}, EligibleLessons {EligibleLessons}, ProcessedLessons {ProcessedLessons}, SkippedLessons {SkippedLessons}, FailedLessons {FailedLessons}, RequestedExercises {RequestedExercises}, AcceptedExercises {AcceptedExercises}, RejectedExercises {RejectedExercises}, DurationMs {DurationMs}",
+            "Exercise generation job completed with TotalLessons {TotalLessons}, EligibleLessons {EligibleLessons}, ProcessedLessons {ProcessedLessons}, SkippedLessons {SkippedLessons}, FailedLessons {FailedLessons}, RequestedExercises {RequestedExercises}, AcceptedExercises {AcceptedExercises}, RejectedExercises {RejectedExercises}, GeneratedCountByExerciseType {@GeneratedCountByExerciseType}, ValidCountByExerciseType {@ValidCountByExerciseType}, DurationMs {DurationMs}",
             totalLessons, result.EligibleLessons, result.ProcessedLessons, result.SkippedLessons,
             result.FailedLessons, result.RequestedExercises, result.AcceptedExercises,
-            result.RejectedExercises, stopwatch.ElapsedMilliseconds);
+            result.RejectedExercises, NonZeroCounts(generatedByType), NonZeroCounts(acceptedByType),
+            stopwatch.ElapsedMilliseconds);
 
         return Result<GenerateExercisesResult>.Success(result);
     }
 
-    private static bool TryMapContent(GeneratedExercise exercise, out object content)
+    private static bool TryMapContent(
+        GeneratedExercise exercise,
+        IReadOnlyDictionary<Guid, ExerciseGenerationImageAsset> availableImages,
+        out object content)
     {
         switch (exercise.Type)
         {
@@ -313,11 +390,118 @@ public sealed class GenerateExercisesCommandHandler(
                     exercise.Question.Trim(), [exercise.CorrectAnswer!.Trim()], false, true,
                     exercise.Explanation?.Trim(), ExerciseLimits.MaximumTypingLength);
                 return true;
+            case ExerciseType.AudioMatching:
+            {
+                var options = exercise.Options.Select(x => new ExerciseOption(Guid.NewGuid(), x.Trim())).ToArray();
+                var correct = options.FirstOrDefault(x => string.Equals(
+                    x.Text, exercise.CorrectAnswer?.Trim(), StringComparison.OrdinalIgnoreCase));
+                if (correct is null)
+                {
+                    content = null!;
+                    return false;
+                }
+
+                content = new AudioMatchingContent(
+                    exercise.PronunciationText!.Trim(), options, correct.Id, exercise.Explanation?.Trim());
+                return true;
+            }
+            case ExerciseType.ImageMatching:
+            {
+                if (exercise.ImageMatches is null || exercise.ImageMatches.Any(match =>
+                        !availableImages.ContainsKey(match.ImageMediaId)))
+                {
+                    content = null!;
+                    return false;
+                }
+
+                var sources = exercise.ImageMatches.Select(match => new ImageMatchingSource(
+                    Guid.NewGuid(), match.ImageMediaId, availableImages[match.ImageMediaId].AltText)).ToArray();
+                var targets = exercise.ImageMatches.Select(match => new MatchingTarget(
+                    Guid.NewGuid(), match.Target.Trim())).ToArray();
+                var pairs = sources.Zip(targets, (source, target) => new MatchPair(source.Id, target.Id)).ToArray();
+                content = new ImageMatchingContent(sources, targets, pairs, exercise.Explanation?.Trim());
+                return true;
+            }
+            case ExerciseType.SentenceOrdering:
+            {
+                var orderedTokens = exercise.OrderedSegments!
+                    .Select(segment => new SentenceToken(Guid.NewGuid(), segment.Trim()))
+                    .ToArray();
+                var displayTokens = orderedTokens.Length == 2
+                    ? orderedTokens.Reverse().ToArray()
+                    : orderedTokens.Skip(1).Append(orderedTokens[0]).ToArray();
+                content = new SentenceOrderingContent(
+                    exercise.Question.Trim(), displayTokens, orderedTokens.Select(token => token.Id).ToArray(),
+                    exercise.Explanation?.Trim());
+                return true;
+            }
+            case ExerciseType.Categorization:
+            {
+                var generatedCategories = exercise.Categories!;
+                var categories = generatedCategories
+                    .Select(category => new ExerciseCategory(Guid.NewGuid(), category.Name.Trim()))
+                    .ToArray();
+                var items = new List<CategorizationItem>();
+                var assignments = new List<CategoryAssignment>();
+                for (var index = 0; index < categories.Length; index++)
+                {
+                    foreach (var itemText in generatedCategories[index].Items)
+                    {
+                        var item = new CategorizationItem(Guid.NewGuid(), itemText.Trim());
+                        items.Add(item);
+                        assignments.Add(new CategoryAssignment(item.Id, categories[index].Id));
+                    }
+                }
+
+                content = new CategorizationContent(items, categories, assignments, exercise.Explanation?.Trim());
+                return true;
+            }
+            case ExerciseType.Speaking:
+                content = new SpeakingContent(
+                    exercise.Question.Trim(), exercise.ReferenceText!.Trim(), null);
+                return true;
             default:
                 content = null!;
                 return false;
         }
     }
+
+    private static ExerciseType[] RotateTypes(IReadOnlyList<ExerciseType> types, int offset)
+    {
+        var start = offset % types.Count;
+        return types.Skip(start).Concat(types.Take(start)).ToArray();
+    }
+
+    private static IReadOnlyDictionary<ExerciseType, int> BuildDistribution(
+        IReadOnlyList<ExerciseType> types,
+        int requestedCount)
+    {
+        var baseCount = requestedCount / types.Count;
+        var remainder = requestedCount % types.Count;
+        return types.Select((type, index) => new
+            {
+                Type = type,
+                Count = baseCount + (index < remainder ? 1 : 0)
+            })
+            .ToDictionary(item => item.Type, item => item.Count);
+    }
+
+    private static string InstructionFor(ExerciseType type) => type switch
+    {
+        ExerciseType.MultipleChoice => "Choose the correct answer.",
+        ExerciseType.ImageMatching => "Match each image to the correct word or meaning.",
+        ExerciseType.AudioMatching => "Listen and choose the correct answer.",
+        ExerciseType.Typing => "Type the correct answer.",
+        ExerciseType.SentenceOrdering => "Arrange the segments into the correct order.",
+        ExerciseType.Categorization => "Place each item in the correct category.",
+        ExerciseType.Speaking => "Read the text aloud, then confirm completion.",
+        _ => string.Empty
+    };
+
+    private static IReadOnlyDictionary<string, int> NonZeroCounts(
+        IReadOnlyDictionary<ExerciseType, int> counts) => counts
+        .Where(pair => pair.Value > 0)
+        .ToDictionary(pair => pair.Key.ToString(), pair => pair.Value);
 
     private static string Truncate(string value, int maximumLength) =>
         value.Length <= maximumLength ? value : value[..maximumLength];
@@ -335,4 +519,10 @@ public sealed class GenerateExercisesCommandHandler(
         string? Description,
         string? LearningObjective,
         DifficultyLevel Difficulty);
+    private sealed record ImageAssetRow(
+        DifficultyLevel Difficulty,
+        Guid ImageMediaId,
+        string AltText,
+        string Word,
+        string Meaning);
 }
