@@ -19,7 +19,6 @@ public sealed class ExerciseGenerationSettings : BaseEntity
     public int MinimumExerciseThreshold { get; private set; } = ExerciseGenerationOptions.DefaultMinimumExerciseThreshold;
     public int TargetExerciseCount { get; private set; } = ExerciseGenerationOptions.DefaultTargetExerciseCount;
     public int MaxExercisesPerLessonPerRun { get; private set; } = ExerciseGenerationOptions.DefaultMaxExercisesPerLessonPerRun;
-    public int GenerationBatchSize { get; private set; } = ExerciseGenerationOptions.DefaultGenerationBatchSize;
     public DateTime UpdatedAtUtc { get; private set; }
     public Guid? UpdatedByUserId { get; private set; }
     public User? UpdatedByUser { get; private set; }
@@ -31,7 +30,6 @@ public sealed class ExerciseGenerationSettings : BaseEntity
         int minimumExerciseThreshold,
         int targetExerciseCount,
         int maxExercisesPerLessonPerRun,
-        int generationBatchSize,
         DateTime updatedAtUtc,
         Guid updatedByUserId)
     {
@@ -40,7 +38,6 @@ public sealed class ExerciseGenerationSettings : BaseEntity
         MinimumExerciseThreshold = minimumExerciseThreshold;
         TargetExerciseCount = targetExerciseCount;
         MaxExercisesPerLessonPerRun = maxExercisesPerLessonPerRun;
-        GenerationBatchSize = generationBatchSize;
         UpdatedAtUtc = updatedAtUtc;
         UpdatedByUserId = updatedByUserId;
         Version = Guid.NewGuid();

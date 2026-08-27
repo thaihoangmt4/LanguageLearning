@@ -30,7 +30,6 @@ public sealed class ExerciseGenerationSettingsAdminTests
         Assert.True(result.IsSuccess);
         Assert.Equal(entity.Version, result.Value.Version);
         Assert.Equal(ExerciseGenerationOptions.DefaultIntervalHours, result.Value.IntervalHours);
-        Assert.Equal(ExerciseGenerationOptions.DefaultGenerationBatchSize, result.Value.GenerationBatchSize);
     }
 
     [Fact]
@@ -48,7 +47,7 @@ public sealed class ExerciseGenerationSettingsAdminTests
             NullLogger<UpdateExerciseGenerationSettingsCommandHandler>.Instance);
 
         var result = await handler.Handle(
-            new(5, 12, 10, 30, 40, 10, entity.Version),
+            new(5, 12, 10, 30, 40, entity.Version),
             TestContext.Current.CancellationToken);
 
         Assert.True(result.IsSuccess);
@@ -57,7 +56,6 @@ public sealed class ExerciseGenerationSettingsAdminTests
         Assert.Equal(10, result.Value.MinimumExerciseThreshold);
         Assert.Equal(30, result.Value.TargetExerciseCount);
         Assert.Equal(40, result.Value.MaxExercisesPerLessonPerRun);
-        Assert.Equal(10, result.Value.GenerationBatchSize);
         Assert.Equal(now.UtcDateTime, result.Value.UpdatedAtUtc);
         Assert.Equal(adminUserId, result.Value.UpdatedByUserId);
         Assert.NotEqual(originalVersion, result.Value.Version);
@@ -82,10 +80,10 @@ public sealed class ExerciseGenerationSettingsAdminTests
             NullLogger<UpdateExerciseGenerationSettingsCommandHandler>.Instance);
 
         var first = await handler.Handle(
-            new(0, 12, 10, 30, 40, 10, originalVersion),
+            new(0, 12, 10, 30, 40, originalVersion),
             TestContext.Current.CancellationToken);
         var stale = await handler.Handle(
-            new(0, 48, 10, 30, 40, 25, originalVersion),
+            new(0, 48, 10, 30, 40, originalVersion),
             TestContext.Current.CancellationToken);
 
         Assert.True(first.IsSuccess);
@@ -108,7 +106,7 @@ public sealed class ExerciseGenerationSettingsAdminTests
             NullLogger<UpdateExerciseGenerationSettingsCommandHandler>.Instance);
 
         var result = await handler.Handle(
-            new(0, 24, 20, 40, 50, 20, Guid.NewGuid()),
+            new(0, 24, 20, 40, 50, Guid.NewGuid()),
             TestContext.Current.CancellationToken);
 
         Assert.True(result.IsFailure);
@@ -156,27 +154,26 @@ public sealed class ExerciseGenerationSettingsAdminTests
     }
 
     [Theory]
-    [InlineData(-1, 24, 20, 40, 50, 20)]
-    [InlineData(0, 0, 20, 40, 50, 20)]
-    [InlineData(0, 24, -1, 40, 50, 20)]
-    [InlineData(0, 24, 20, 40, 0, 20)]
-    [InlineData(0, 24, 20, 40, 50, 0)]
-    [InlineData(0, 169, 20, 40, 50, 20)]
-    [InlineData(0, 24, 20, 501, 50, 20)]
-    [InlineData(0, 24, 20, 40, 50, 51)]
+    [InlineData(-1, 24, 20, 40, 50)]
+    [InlineData(0, 0, 20, 40, 50)]
+    [InlineData(0, 24, -1, 40, 50)]
+    [InlineData(0, 24, 20, 40, 0)]
+    [InlineData(0, 24, 20, 40, 50)]
+    [InlineData(0, 169, 20, 40, 50)]
+    [InlineData(0, 24, 20, 501, 50)]
+    [InlineData(0, 24, 20, 40, 50)]
     public async Task InvalidOperationalValues_AreRejected(
         int initialDelay,
         int interval,
         int minimum,
         int target,
-        int maximum,
-        int batchSize)
+        int maximum)
     {
         var validator = new UpdateExerciseGenerationSettingsCommandValidator();
 
         var result = await validator.ValidateAsync(
             new UpdateExerciseGenerationSettingsCommand(
-                initialDelay, interval, minimum, target, maximum, batchSize, Guid.NewGuid()),
+                initialDelay, interval, minimum, target, maximum, Guid.NewGuid()),
             TestContext.Current.CancellationToken);
 
         Assert.False(result.IsValid);
@@ -189,7 +186,7 @@ public sealed class ExerciseGenerationSettingsAdminTests
 
         var result = await validator.ValidateAsync(
             new UpdateExerciseGenerationSettingsCommand(
-                0, 24, 40, 20, 50, 20, Guid.NewGuid()),
+                0, 24, 40, 20, 50, Guid.NewGuid()),
             TestContext.Current.CancellationToken);
 
         Assert.Contains(result.Errors, failure =>
@@ -233,7 +230,7 @@ public sealed class ExerciseGenerationSettingsAdminTests
     }
 
     private static ExerciseGenerationSettingsSnapshot Snapshot(int initialDelay, int interval) =>
-        new(initialDelay, interval, 20, 40, 50, 20, DateTime.UtcNow, null, Guid.NewGuid());
+        new(initialDelay, interval, 20, 40, 50, DateTime.UtcNow, null, Guid.NewGuid());
 
     private sealed class FixedTimeProvider(DateTimeOffset value) : TimeProvider
     {
@@ -244,5 +241,4 @@ public sealed class ExerciseGenerationSettingsAdminTests
     {
         public Guid? UserId { get; } = userId;
     }
-
 }

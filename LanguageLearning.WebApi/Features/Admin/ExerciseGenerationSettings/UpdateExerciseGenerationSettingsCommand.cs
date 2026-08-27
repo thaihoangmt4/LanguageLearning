@@ -16,7 +16,6 @@ public sealed record UpdateExerciseGenerationSettingsCommand(
     int MinimumExerciseThreshold,
     int TargetExerciseCount,
     int MaxExercisesPerLessonPerRun,
-    int GenerationBatchSize,
     Guid Version) : IRequest<Result<ExerciseGenerationSettingsResponse>>;
 
 public sealed class UpdateExerciseGenerationSettingsCommandValidator
@@ -32,8 +31,7 @@ public sealed class UpdateExerciseGenerationSettingsCommandValidator
                 command.IntervalHours,
                 command.MinimumExerciseThreshold,
                 command.TargetExerciseCount,
-                command.MaxExercisesPerLessonPerRun,
-                command.GenerationBatchSize);
+                command.MaxExercisesPerLessonPerRun);
             foreach (var violation in violations)
                 context.AddFailure(violation.PropertyName, violation.Message);
         });
@@ -72,14 +70,12 @@ public sealed class UpdateExerciseGenerationSettingsCommandHandler(
         }
 
         var oldIntervalHours = settings.IntervalHours;
-        var oldGenerationBatchSize = settings.GenerationBatchSize;
         settings.Update(
             request.InitialDelayMinutes,
             request.IntervalHours,
             request.MinimumExerciseThreshold,
             request.TargetExerciseCount,
             request.MaxExercisesPerLessonPerRun,
-            request.GenerationBatchSize,
             timeProvider.GetUtcNow().UtcDateTime,
             adminUserId);
 
@@ -94,12 +90,10 @@ public sealed class UpdateExerciseGenerationSettingsCommandHandler(
         }
 
         logger.LogInformation(
-            "Exercise generation settings updated by AdminUserId {AdminUserId}, OldIntervalHours {OldIntervalHours}, NewIntervalHours {NewIntervalHours}, OldGenerationBatchSize {OldGenerationBatchSize}, NewGenerationBatchSize {NewGenerationBatchSize}",
+            "Exercise generation settings updated by AdminUserId {AdminUserId}, OldIntervalHours {OldIntervalHours}, NewIntervalHours {NewIntervalHours}",
             adminUserId,
             oldIntervalHours,
-            settings.IntervalHours,
-            oldGenerationBatchSize,
-            settings.GenerationBatchSize);
+            settings.IntervalHours);
 
         return Result<ExerciseGenerationSettingsResponse>.Success(
             GetExerciseGenerationSettingsQueryHandler.ToResponse(settings));

@@ -60,23 +60,48 @@ public sealed class GetLearningProgressQueryHandler(
                     lesson.Status))
                 .ToListAsync(cancellationToken);
 
-        var lessonIds = lessonRows.Select(lesson => lesson.Id).ToList();
-        var attemptRows = lessonIds.Count == 0
+        var publishedLessonIds = lessonRows
+            .Where(lesson => lesson.Status == LessonStatus.Published)
+            .Select(lesson => lesson.Id)
+            .ToList();
+        var requiredExercises = publishedLessonIds.Count == 0
+            ? []
+            : await dbContext.Exercises.AsNoTracking()
+                .Where(exercise =>
+                    publishedLessonIds.Contains(exercise.LessonId) &&
+                    exercise.IsActive &&
+                    exercise.IsRequired)
+                .Select(exercise => new ExerciseRow(exercise.Id, exercise.LessonId))
+                .ToListAsync(cancellationToken);
+        var attemptRows = publishedLessonIds.Count == 0
             ? []
             : await dbContext.LessonAttempts.AsNoTracking()
                 .Where(attempt =>
                     attempt.UserId == userId &&
-                    lessonIds.Contains(attempt.LessonId))
+                    publishedLessonIds.Contains(attempt.LessonId))
                 .Select(attempt => new AttemptRow(
                     attempt.Id,
                     attempt.LessonId,
-                    attempt.Status,
                     attempt.StartedAt,
                     attempt.LastAccessedAt))
                 .ToListAsync(cancellationToken);
-        var completed = attemptRows
-            .Where(attempt => attempt.Status == LessonAttemptStatus.Completed)
-            .Select(attempt => attempt.LessonId)
+        var attemptIds = attemptRows.Select(attempt => attempt.Id).ToArray();
+        var requiredExerciseIds = requiredExercises.Select(exercise => exercise.Id).ToArray();
+        var completedExerciseIds = attemptIds.Length == 0 || requiredExerciseIds.Length == 0
+            ? []
+            : await dbContext.LessonAttemptExercises.AsNoTracking()
+                .Where(activity =>
+                    attemptIds.Contains(activity.LessonAttemptId) &&
+                    requiredExerciseIds.Contains(activity.ExerciseId) &&
+                    activity.CompletedAt != null)
+                .Select(activity => activity.ExerciseId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+        var completedExerciseIdSet = completedExerciseIds.ToHashSet();
+        var completed = requiredExercises
+            .GroupBy(exercise => exercise.LessonId)
+            .Where(group => group.All(exercise => completedExerciseIdSet.Contains(exercise.Id)))
+            .Select(group => group.Key)
             .ToHashSet();
         var attempts = attemptRows
             .GroupBy(attempt => attempt.LessonId)
@@ -98,11 +123,16 @@ public sealed class GetLearningProgressQueryHandler(
         var completedCount = completed.Count;
         var totalCount = units.Sum(unit => unit.Lessons.Count);
         var percentage = totalCount == 0 ? 0 : Math.Round((decimal)completedCount / totalCount * 100, 2);
-        var state = assignment.Status == UserCourseAssignmentStatus.Completed
+        var state = totalCount > 0 && completedCount == totalCount
             ? "CourseCompleted"
             : "InProgress";
+        var effectiveAssignmentStatus = state == "CourseCompleted"
+            ? UserCourseAssignmentStatus.Completed
+            : assignment.Status == UserCourseAssignmentStatus.Assigned
+                ? UserCourseAssignmentStatus.Assigned
+                : UserCourseAssignmentStatus.InProgress;
         return Result<LearningProgressResponse>.Success(new(state,
-            new(assignment.Id, assignment.CourseId, course.Code, course.Title, assignment.Status),
+            new(assignment.Id, assignment.CourseId, course.Code, course.Title, effectiveAssignmentStatus),
             completedCount, totalCount, percentage, units));
     }
 
@@ -126,7 +156,8 @@ public sealed class GetLearningProgressQueryHandler(
     private sealed record AttemptRow(
         Guid Id,
         Guid LessonId,
-        LessonAttemptStatus Status,
         DateTime StartedAt,
         DateTime? LastAccessedAt);
+
+    private sealed record ExerciseRow(Guid Id, Guid LessonId);
 }

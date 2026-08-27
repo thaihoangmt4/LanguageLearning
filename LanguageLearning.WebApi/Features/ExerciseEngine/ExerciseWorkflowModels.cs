@@ -5,7 +5,14 @@ namespace LanguageLearning.WebApi.Features.ExerciseEngine;
 
 public enum LearningSessionMode { Started = 1, Resumed = 2 }
 
-public enum LearningPathState { Resume = 1, StartNextLesson = 2, CourseCompleted = 3, NoActiveAssignment = 4 }
+public enum LearningPathState
+{
+    Resume = 1,
+    StartNextLesson = 2,
+    CourseCompleted = 3,
+    NoActiveAssignment = 4,
+    NoPublishedContent = 5
+}
 public sealed record LearningPathResolution(
     LearningPathState State,
     Guid? AssignmentId,

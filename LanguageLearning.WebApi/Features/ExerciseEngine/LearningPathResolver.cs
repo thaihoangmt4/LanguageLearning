@@ -22,59 +22,153 @@ public sealed class SequentialLearningPathResolver(
             return Result<LearningPathResolution>.Failure(ExerciseWorkflowErrors.CurrentUserUnavailable);
 
         var assignment = await dbContext.UserCourseAssignments.AsNoTracking()
-            .Where(x => x.UserId == userId &&
-                (x.Status == UserCourseAssignmentStatus.Assigned || x.Status == UserCourseAssignmentStatus.InProgress))
-            .Select(x => new { x.Id, x.CourseId })
-            .SingleOrDefaultAsync(cancellationToken);
-        if (assignment is null)
-            return Result<LearningPathResolution>.Success(new(
-                LearningPathState.NoActiveAssignment, null, null, null, null, null, null, null, null));
-
-        var activeAttempt = await dbContext.LessonAttempts.AsNoTracking()
-            .Where(x => x.UserId == userId && x.Status == LessonAttemptStatus.InProgress &&
-                x.Lesson.Unit.CourseId == assignment.CourseId)
-            .OrderByDescending(x => x.LastAccessedAt ?? x.StartedAt)
-            .ThenByDescending(x => x.StartedAt)
-            .Select(x => new
-            {
-                x.Id,
-                x.LessonId,
-                x.Lesson.Title,
-                UnitTitle = x.Lesson.Unit.Title,
-                x.Lesson.EstimatedDurationMinutes,
-                NextActivityId = x.Activities.Where(activity => activity.IsRequired && activity.CompletedAt == null)
-                    .OrderBy(activity => activity.DisplayOrder).Select(activity => (Guid?)activity.Id).FirstOrDefault()
-            })
+            .Where(value => value.UserId == userId)
+            .OrderBy(value => value.Status == UserCourseAssignmentStatus.Completed)
+            .ThenByDescending(value => value.LastAccessedAt ?? value.AssignedAt)
+            .Select(value => new { value.Id, value.CourseId })
             .FirstOrDefaultAsync(cancellationToken);
+        if (assignment is null)
+            return Resolution(LearningPathState.NoActiveAssignment);
+
+        var courseIsPublished = await dbContext.Courses.AsNoTracking()
+            .Where(value => value.Id == assignment.CourseId)
+            .Select(value => value.IsPublished)
+            .SingleAsync(cancellationToken);
+        if (!courseIsPublished)
+            return Resolution(LearningPathState.NoPublishedContent, assignment.Id, assignment.CourseId);
+
+        var units = await dbContext.Units.AsNoTracking()
+            .Where(value => value.CourseId == assignment.CourseId)
+            .OrderBy(value => value.DisplayOrder)
+            .Select(value => new { value.Id, value.Title, value.DisplayOrder })
+            .ToListAsync(cancellationToken);
+        var unitIds = units.Select(value => value.Id).ToArray();
+        var unitById = units.ToDictionary(value => value.Id);
+        var lessons = unitIds.Length == 0
+            ? []
+            : await dbContext.Lessons.AsNoTracking()
+                .Where(value => unitIds.Contains(value.UnitId) && value.Status == LessonStatus.Published)
+                .Select(value => new LessonRow(
+                    value.Id,
+                    value.UnitId,
+                    value.Title,
+                    value.DisplayOrder,
+                    value.EstimatedDurationMinutes))
+                .ToListAsync(cancellationToken);
+        var orderedLessons = lessons
+            .OrderBy(value => unitById[value.UnitId].DisplayOrder)
+            .ThenBy(value => value.DisplayOrder)
+            .ToArray();
+        if (orderedLessons.Length == 0)
+            return Resolution(LearningPathState.NoPublishedContent, assignment.Id, assignment.CourseId);
+
+        var lessonIds = orderedLessons.Select(value => value.Id).ToArray();
+        var requiredExercises = await dbContext.Exercises.AsNoTracking()
+            .Where(value => lessonIds.Contains(value.LessonId) && value.IsActive && value.IsRequired)
+            .Select(value => new ExerciseRow(value.Id, value.LessonId))
+            .ToListAsync(cancellationToken);
+        var requiredByLessonId = requiredExercises
+            .GroupBy(value => value.LessonId)
+            .ToDictionary(group => group.Key, group => group.Select(value => value.Id).ToArray());
+
+        var attempts = await dbContext.LessonAttempts.AsNoTracking()
+            .Where(value => value.UserId == userId && lessonIds.Contains(value.LessonId))
+            .Select(value => new AttemptRow(
+                value.Id,
+                value.LessonId,
+                value.Status,
+                value.StartedAt,
+                value.LastAccessedAt))
+            .ToListAsync(cancellationToken);
+        var attemptIds = attempts.Select(value => value.Id).ToArray();
+        var requiredExerciseIds = requiredExercises.Select(value => value.Id).ToArray();
+        var completedExerciseIds = attemptIds.Length == 0 || requiredExerciseIds.Length == 0
+            ? []
+            : await dbContext.LessonAttemptExercises.AsNoTracking()
+                .Where(value =>
+                    attemptIds.Contains(value.LessonAttemptId) &&
+                    requiredExerciseIds.Contains(value.ExerciseId) &&
+                    value.CompletedAt != null)
+                .Select(value => value.ExerciseId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+        var completedExerciseIdSet = completedExerciseIds.ToHashSet();
+
+        var nextLesson = orderedLessons.FirstOrDefault(lesson =>
+            !requiredByLessonId.TryGetValue(lesson.Id, out var requiredIds) ||
+            requiredIds.Any(id => !completedExerciseIdSet.Contains(id)));
+        if (nextLesson is null)
+            return Resolution(LearningPathState.CourseCompleted, assignment.Id, assignment.CourseId);
+
+        if (!requiredByLessonId.ContainsKey(nextLesson.Id))
+            return Resolution(LearningPathState.NoPublishedContent, assignment.Id, assignment.CourseId);
+
+        var activeAttempt = attempts
+            .Where(value => value.LessonId == nextLesson.Id && value.Status == LessonAttemptStatus.InProgress)
+            .OrderByDescending(value => value.LastAccessedAt ?? value.StartedAt)
+            .ThenByDescending(value => value.StartedAt)
+            .FirstOrDefault();
+        var unitTitle = unitById[nextLesson.UnitId].Title;
         if (activeAttempt is not null)
         {
-            logger.LogInformation("Resuming learning path for UserId {UserId}, LessonAttemptId {LessonAttemptId}, LessonId {LessonId}",
-                userId, activeAttempt.Id, activeAttempt.LessonId);
+            var nextActivityId = await dbContext.LessonAttemptExercises.AsNoTracking()
+                .Where(value =>
+                    value.LessonAttemptId == activeAttempt.Id &&
+                    value.IsRequired &&
+                    value.CompletedAt == null)
+                .OrderBy(value => value.DisplayOrder)
+                .Select(value => (Guid?)value.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+            logger.LogInformation(
+                "Resuming learning path for UserId {UserId}, LessonAttemptId {LessonAttemptId}, LessonId {LessonId}",
+                userId,
+                activeAttempt.Id,
+                activeAttempt.LessonId);
             return Result<LearningPathResolution>.Success(new(
-                LearningPathState.Resume, assignment.Id, assignment.CourseId, activeAttempt.Id,
-                activeAttempt.LessonId, activeAttempt.NextActivityId, activeAttempt.Title,
-                activeAttempt.UnitTitle, activeAttempt.EstimatedDurationMinutes));
+                LearningPathState.Resume,
+                assignment.Id,
+                assignment.CourseId,
+                activeAttempt.Id,
+                nextLesson.Id,
+                nextActivityId,
+                nextLesson.Title,
+                unitTitle,
+                nextLesson.EstimatedDurationMinutes));
         }
-
-        var publishedLessons = dbContext.Lessons.AsNoTracking()
-            .Where(x => x.Unit.CourseId == assignment.CourseId && x.Status == LessonStatus.Published &&
-                x.Unit.Course.IsPublished && x.Exercises.Any(e => e.IsActive));
-
-        var nextLesson = await publishedLessons
-            .Where(x => !dbContext.LessonAttempts.Any(a => a.UserId == userId && a.LessonId == x.Id && a.Status == LessonAttemptStatus.Completed))
-            .OrderBy(x => x.Unit.DisplayOrder)
-            .ThenBy(x => x.DisplayOrder)
-            .Select(x => new { x.Id, x.Title, UnitTitle = x.Unit.Title, x.EstimatedDurationMinutes })
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (nextLesson is null)
-            return Result<LearningPathResolution>.Success(new(
-                LearningPathState.CourseCompleted, assignment.Id, assignment.CourseId,
-                null, null, null, null, null, null));
 
         logger.LogInformation("Resolved next lesson for UserId {UserId}, LessonId {LessonId}", userId, nextLesson.Id);
         return Result<LearningPathResolution>.Success(new(
-            LearningPathState.StartNextLesson, assignment.Id, assignment.CourseId, null, nextLesson.Id,
-            null, nextLesson.Title, nextLesson.UnitTitle, nextLesson.EstimatedDurationMinutes));
+            LearningPathState.StartNextLesson,
+            assignment.Id,
+            assignment.CourseId,
+            null,
+            nextLesson.Id,
+            null,
+            nextLesson.Title,
+            unitTitle,
+            nextLesson.EstimatedDurationMinutes));
     }
+
+    private static Result<LearningPathResolution> Resolution(
+        LearningPathState state,
+        Guid? assignmentId = null,
+        Guid? courseId = null) =>
+        Result<LearningPathResolution>.Success(new(
+            state, assignmentId, courseId, null, null, null, null, null, null));
+
+    private sealed record LessonRow(
+        Guid Id,
+        Guid UnitId,
+        string Title,
+        int DisplayOrder,
+        int EstimatedDurationMinutes);
+
+    private sealed record ExerciseRow(Guid Id, Guid LessonId);
+
+    private sealed record AttemptRow(
+        Guid Id,
+        Guid LessonId,
+        LessonAttemptStatus Status,
+        DateTime StartedAt,
+        DateTime? LastAccessedAt);
 }

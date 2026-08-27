@@ -6,7 +6,6 @@ public sealed record ExerciseGenerationSettingsResponse(
     int MinimumExerciseThreshold,
     int TargetExerciseCount,
     int MaxExercisesPerLessonPerRun,
-    int GenerationBatchSize,
     DateTime UpdatedAtUtc,
     Guid? UpdatedByUserId,
     Guid Version);
@@ -17,5 +16,4 @@ public sealed record UpdateExerciseGenerationSettingsRequest(
     int MinimumExerciseThreshold,
     int TargetExerciseCount,
     int MaxExercisesPerLessonPerRun,
-    int GenerationBatchSize,
     Guid Version);

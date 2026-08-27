@@ -40,7 +40,6 @@ public sealed class AdminExerciseGenerationSettingsController(ISender sender) : 
                 request.MinimumExerciseThreshold,
                 request.TargetExerciseCount,
                 request.MaxExercisesPerLessonPerRun,
-                request.GenerationBatchSize,
                 request.Version),
             cancellationToken);
 

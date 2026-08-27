@@ -20,7 +20,8 @@ internal sealed record DeepSeekChatResponse(
     [property: JsonPropertyName("choices")] IReadOnlyList<DeepSeekChoice>? Choices);
 
 internal sealed record DeepSeekChoice(
-    [property: JsonPropertyName("message")] DeepSeekResponseMessage? Message);
+    [property: JsonPropertyName("message")] DeepSeekResponseMessage? Message,
+    [property: JsonPropertyName("finish_reason")] string? FinishReason);
 
 internal sealed record DeepSeekResponseMessage(
     [property: JsonPropertyName("content")] string? Content);

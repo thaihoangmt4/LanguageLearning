@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using FluentValidation;
 using LanguageLearning.Common.Entities.ExerciseEngine;
 using LanguageLearning.Common.Entities.ExerciseGeneration;
@@ -9,6 +8,7 @@ using LanguageLearning.Common.Persistence;
 using LanguageLearning.Common.Results;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using System.Diagnostics;
 
 namespace LanguageLearning.WebApi.Features.ExerciseGeneration.Commands;
 
@@ -32,6 +32,8 @@ public sealed class GenerateExercisesCommandHandler(
     ILogger<GenerateExercisesCommandHandler> logger)
     : IRequestHandler<GenerateExercisesCommand, Result<GenerateExercisesResult>>
 {
+    private const int MaximumProviderBatchSize = 5;
+
     private static readonly ExerciseType[] TextGeneratedTypes =
     [
         ExerciseType.MultipleChoice,
@@ -56,7 +58,6 @@ public sealed class GenerateExercisesCommandHandler(
                 value.MinimumExerciseThreshold,
                 value.TargetExerciseCount,
                 value.MaxExercisesPerLessonPerRun,
-                value.GenerationBatchSize,
                 value.UpdatedAtUtc,
                 value.UpdatedByUserId,
                 value.Version))
@@ -223,10 +224,10 @@ public sealed class GenerateExercisesCommandHandler(
                 : TextGeneratedTypes;
             var availableImagesById = availableImages.ToDictionary(image => image.ImageMediaId);
 
-            for (var offset = 0; offset < requiredCount; offset += settings.GenerationBatchSize)
+            for (var offset = 0; offset < requiredCount; offset += MaximumProviderBatchSize)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var batchSize = Math.Min(settings.GenerationBatchSize, requiredCount - offset);
+                var batchSize = Math.Min(MaximumProviderBatchSize, requiredCount - offset);
                 requested += batchSize;
                 GeneratedExerciseBatch generatedBatch;
                 var batchTypes = RotateTypes(generatedTypes, offset)
@@ -372,94 +373,96 @@ public sealed class GenerateExercisesCommandHandler(
         switch (exercise.Type)
         {
             case ExerciseType.MultipleChoice:
-            {
-                var options = exercise.Options.Select(x => new ExerciseOption(Guid.NewGuid(), x.Trim())).ToArray();
-                var correct = options.FirstOrDefault(x => string.Equals(
-                    x.Text, exercise.CorrectAnswer?.Trim(), StringComparison.OrdinalIgnoreCase));
-                if (correct is null)
                 {
-                    content = null!;
-                    return false;
-                }
+                    var options = exercise.Options.Select(x => new ExerciseOption(Guid.NewGuid(), x.Trim())).ToArray();
+                    var correct = options.FirstOrDefault(x => string.Equals(
+                        x.Text, exercise.CorrectAnswer?.Trim(), StringComparison.OrdinalIgnoreCase));
+                    if (correct is null)
+                    {
+                        content = null!;
+                        return false;
+                    }
 
-                content = new MultipleChoiceContent(exercise.Question.Trim(), options, correct.Id, exercise.Explanation?.Trim());
-                return true;
-            }
+                    content = new MultipleChoiceContent(exercise.Question.Trim(), options, correct.Id, exercise.Explanation?.Trim());
+                    return true;
+                }
             case ExerciseType.Typing:
                 content = new TypingContent(
                     exercise.Question.Trim(), [exercise.CorrectAnswer!.Trim()], false, true,
                     exercise.Explanation?.Trim(), ExerciseLimits.MaximumTypingLength);
                 return true;
+
             case ExerciseType.AudioMatching:
-            {
-                var options = exercise.Options.Select(x => new ExerciseOption(Guid.NewGuid(), x.Trim())).ToArray();
-                var correct = options.FirstOrDefault(x => string.Equals(
-                    x.Text, exercise.CorrectAnswer?.Trim(), StringComparison.OrdinalIgnoreCase));
-                if (correct is null)
                 {
-                    content = null!;
-                    return false;
-                }
-
-                content = new AudioMatchingContent(
-                    exercise.PronunciationText!.Trim(), options, correct.Id, exercise.Explanation?.Trim());
-                return true;
-            }
-            case ExerciseType.ImageMatching:
-            {
-                if (exercise.ImageMatches is null || exercise.ImageMatches.Any(match =>
-                        !availableImages.ContainsKey(match.ImageMediaId)))
-                {
-                    content = null!;
-                    return false;
-                }
-
-                var sources = exercise.ImageMatches.Select(match => new ImageMatchingSource(
-                    Guid.NewGuid(), match.ImageMediaId, availableImages[match.ImageMediaId].AltText)).ToArray();
-                var targets = exercise.ImageMatches.Select(match => new MatchingTarget(
-                    Guid.NewGuid(), match.Target.Trim())).ToArray();
-                var pairs = sources.Zip(targets, (source, target) => new MatchPair(source.Id, target.Id)).ToArray();
-                content = new ImageMatchingContent(sources, targets, pairs, exercise.Explanation?.Trim());
-                return true;
-            }
-            case ExerciseType.SentenceOrdering:
-            {
-                var orderedTokens = exercise.OrderedSegments!
-                    .Select(segment => new SentenceToken(Guid.NewGuid(), segment.Trim()))
-                    .ToArray();
-                var displayTokens = orderedTokens.Length == 2
-                    ? orderedTokens.Reverse().ToArray()
-                    : orderedTokens.Skip(1).Append(orderedTokens[0]).ToArray();
-                content = new SentenceOrderingContent(
-                    exercise.Question.Trim(), displayTokens, orderedTokens.Select(token => token.Id).ToArray(),
-                    exercise.Explanation?.Trim());
-                return true;
-            }
-            case ExerciseType.Categorization:
-            {
-                var generatedCategories = exercise.Categories!;
-                var categories = generatedCategories
-                    .Select(category => new ExerciseCategory(Guid.NewGuid(), category.Name.Trim()))
-                    .ToArray();
-                var items = new List<CategorizationItem>();
-                var assignments = new List<CategoryAssignment>();
-                for (var index = 0; index < categories.Length; index++)
-                {
-                    foreach (var itemText in generatedCategories[index].Items)
+                    var options = exercise.Options.Select(x => new ExerciseOption(Guid.NewGuid(), x.Trim())).ToArray();
+                    var correct = options.FirstOrDefault(x => string.Equals(
+                        x.Text, exercise.CorrectAnswer?.Trim(), StringComparison.OrdinalIgnoreCase));
+                    if (correct is null)
                     {
-                        var item = new CategorizationItem(Guid.NewGuid(), itemText.Trim());
-                        items.Add(item);
-                        assignments.Add(new CategoryAssignment(item.Id, categories[index].Id));
+                        content = null!;
+                        return false;
                     }
-                }
 
-                content = new CategorizationContent(items, categories, assignments, exercise.Explanation?.Trim());
-                return true;
-            }
+                    content = new AudioMatchingContent(
+                        exercise.PronunciationText!.Trim(), options, correct.Id, exercise.Explanation?.Trim());
+                    return true;
+                }
+            case ExerciseType.ImageMatching:
+                {
+                    if (exercise.ImageMatches is null || exercise.ImageMatches.Any(match =>
+                            !availableImages.ContainsKey(match.ImageMediaId)))
+                    {
+                        content = null!;
+                        return false;
+                    }
+
+                    var sources = exercise.ImageMatches.Select(match => new ImageMatchingSource(
+                        Guid.NewGuid(), match.ImageMediaId, availableImages[match.ImageMediaId].AltText)).ToArray();
+                    var targets = exercise.ImageMatches.Select(match => new MatchingTarget(
+                        Guid.NewGuid(), match.Target.Trim())).ToArray();
+                    var pairs = sources.Zip(targets, (source, target) => new MatchPair(source.Id, target.Id)).ToArray();
+                    content = new ImageMatchingContent(sources, targets, pairs, exercise.Explanation?.Trim());
+                    return true;
+                }
+            case ExerciseType.SentenceOrdering:
+                {
+                    var orderedTokens = exercise.OrderedSegments!
+                        .Select(segment => new SentenceToken(Guid.NewGuid(), segment.Trim()))
+                        .ToArray();
+                    var displayTokens = orderedTokens.Length == 2
+                        ? orderedTokens.Reverse().ToArray()
+                        : orderedTokens.Skip(1).Append(orderedTokens[0]).ToArray();
+                    content = new SentenceOrderingContent(
+                        exercise.Question.Trim(), displayTokens, orderedTokens.Select(token => token.Id).ToArray(),
+                        exercise.Explanation?.Trim());
+                    return true;
+                }
+            case ExerciseType.Categorization:
+                {
+                    var generatedCategories = exercise.Categories!;
+                    var categories = generatedCategories
+                        .Select(category => new ExerciseCategory(Guid.NewGuid(), category.Name.Trim()))
+                        .ToArray();
+                    var items = new List<CategorizationItem>();
+                    var assignments = new List<CategoryAssignment>();
+                    for (var index = 0; index < categories.Length; index++)
+                    {
+                        foreach (var itemText in generatedCategories[index].Items)
+                        {
+                            var item = new CategorizationItem(Guid.NewGuid(), itemText.Trim());
+                            items.Add(item);
+                            assignments.Add(new CategoryAssignment(item.Id, categories[index].Id));
+                        }
+                    }
+
+                    content = new CategorizationContent(items, categories, assignments, exercise.Explanation?.Trim());
+                    return true;
+                }
             case ExerciseType.Speaking:
                 content = new SpeakingContent(
                     exercise.Question.Trim(), exercise.ReferenceText!.Trim(), null);
                 return true;
+
             default:
                 content = null!;
                 return false;
@@ -479,10 +482,10 @@ public sealed class GenerateExercisesCommandHandler(
         var baseCount = requestedCount / types.Count;
         var remainder = requestedCount % types.Count;
         return types.Select((type, index) => new
-            {
-                Type = type,
-                Count = baseCount + (index < remainder ? 1 : 0)
-            })
+        {
+            Type = type,
+            Count = baseCount + (index < remainder ? 1 : 0)
+        })
             .ToDictionary(item => item.Type, item => item.Count);
     }
 

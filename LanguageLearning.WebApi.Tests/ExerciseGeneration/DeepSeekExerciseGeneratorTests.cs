@@ -72,7 +72,7 @@ public sealed class DeepSeekExerciseGeneratorTests
 
         Assert.Contains(imageId.ToString(), prompt.UserPrompt);
         Assert.Contains("never create image URLs or IDs", prompt.UserPrompt);
-        Assert.Contains("do not claim speech scoring", prompt.UserPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("speech-scoring metadata", prompt.UserPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("\"type\": \"MultipleChoice\"", prompt.UserPrompt);
     }
 
@@ -103,6 +103,23 @@ public sealed class DeepSeekExerciseGeneratorTests
 
         Assert.Contains("Typing: 3", prompt.UserPrompt);
         Assert.DoesNotContain("MultipleChoice:", prompt.UserPrompt);
+    }
+
+    [Fact]
+    public void PromptBuilder_RequiresCompactBoundedTypeSpecificOutput()
+    {
+        var prompt = new ExerciseGenerationPromptBuilder().Build(Context(
+            supportedTypes: Enum.GetValues<ExerciseType>()));
+
+        Assert.Contains("question: at most 120 characters", prompt.UserPrompt);
+        Assert.Contains("explanation: at most 100 characters", prompt.UserPrompt);
+        Assert.Contains("exactly 4 unique options", prompt.UserPrompt);
+        Assert.Contains("2-4 items", prompt.UserPrompt);
+        Assert.Contains("4-8 short segments", prompt.UserPrompt);
+        Assert.Contains("exactly 2 short non-overlapping category names", prompt.UserPrompt);
+        Assert.Contains("Return minified JSON", prompt.UserPrompt);
+        Assert.Contains("{\"exercises\":[{\"type\":", prompt.UserPrompt);
+        Assert.DoesNotContain("\n                  \"type\"", prompt.UserPrompt);
     }
 
     [Fact]
@@ -192,6 +209,20 @@ public sealed class DeepSeekExerciseGeneratorTests
             Generator(handler).GenerateAsync(Context(), TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task Generator_ReportsOutputTokenTruncationBeforeJsonDeserialization()
+    {
+        var handler = new StubHttpHandler((_, _) => Task.FromResult(
+            JsonResponse(CompletionContentRaw("{\"exercises\":[{\"type\":\"Typing", "length"))));
+
+        var exception = await Assert.ThrowsAsync<DeepSeekGenerationException>(() =>
+            Generator(handler).GenerateAsync(Context(), TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            "DeepSeek output was truncated because the maximum output token limit was reached.",
+            exception.Message);
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.BadRequest)]
     [InlineData(HttpStatusCode.Unauthorized)]
@@ -276,7 +307,11 @@ public sealed class DeepSeekExerciseGeneratorTests
         var options = Options();
         var httpClient = new HttpClient(handler) { BaseAddress = new Uri(options.BaseUrl + "/") };
         var client = new DeepSeekClient(httpClient, options, NullLogger<DeepSeekClient>.Instance);
-        return new DeepSeekExerciseGenerator(client, new ExerciseGenerationPromptBuilder(), options);
+        return new DeepSeekExerciseGenerator(
+            client,
+            new ExerciseGenerationPromptBuilder(),
+            options,
+            NullLogger<DeepSeekExerciseGenerator>.Instance);
     }
 
     private static ServiceProvider Provider(HttpMessageHandler handler, int retryAttempts)
@@ -311,9 +346,9 @@ public sealed class DeepSeekExerciseGeneratorTests
     private static string CompletionContent(object value) =>
         CompletionContentRaw(JsonSerializer.Serialize(value));
 
-    private static string CompletionContentRaw(string content) => JsonSerializer.Serialize(new
+    private static string CompletionContentRaw(string content, string? finishReason = null) => JsonSerializer.Serialize(new
     {
-        choices = new[] { new { message = new { content } } }
+        choices = new[] { new { message = new { content }, finish_reason = finishReason } }
     });
 
     private static HttpResponseMessage JsonResponse(string value) => new(HttpStatusCode.OK)

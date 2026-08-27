@@ -18,7 +18,7 @@ public sealed class ExerciseGenerationPromptBuilder
         Use natural English. Distractors must be plausible but clearly incorrect. Avoid trick questions and inappropriate, sensitive, political, violent, or sexual content.
         Avoid questions requiring external or current-world knowledge. Do not generate duplicate or near-identical questions.
         Return exactly the requested number whenever possible.
-        Return JSON only, without markdown code fences, commentary, or text before or after the JSON object.
+        Return compact, minified JSON only. Do not pretty-print, add markdown, comments, commentary, or formatting whitespace.
         """;
 
     public ExerciseGenerationPrompt Build(ExerciseGenerationContext context)
@@ -60,32 +60,25 @@ public sealed class ExerciseGenerationPromptBuilder
             AppendTypeRules(prompt, type, context.AvailableImages ?? []);
 
         prompt.AppendLine()
+            .AppendLine("OUTPUT SIZE RULES")
+            .AppendLine("- Keep every field as short as possible; prefer short lesson-appropriate words, phrases, and sentences.")
+            .AppendLine("- question: at most 120 characters.")
+            .AppendLine("- explanation: at most 100 characters and one short sentence; do not repeat the question.")
+            .AppendLine("- correctAnswer: at most 80 characters unless a type rule is stricter.")
+            .AppendLine("- Each option: at most 50 characters.")
+            .AppendLine("- referenceText: at most 120 characters. pronunciationText: at most 100 characters.")
+            .AppendLine("- Never add optional prose or populate fields irrelevant to the exercise type.")
+            .AppendLine()
             .AppendLine("GENERATION RULES")
             .AppendLine("- Stay within the lesson scope and difficulty.")
             .AppendLine("- Avoid duplicate or near-identical questions and duplicate options.")
             .AppendLine("- Populate only the fields required for the exercise type and use empty arrays or null for unrelated fields.")
-            .AppendLine("- Return strict JSON only.")
+            .AppendLine("- Return minified JSON with no markdown, comments, or whitespace for formatting.")
             .AppendLine()
             .AppendLine("OUTPUT JSON SCHEMA")
-            .AppendLine("The type of each object must follow REQUESTED TYPE DISTRIBUTION; the placeholder below is not a literal value.")
-            .AppendLine("""
-                {
-                  "exercises": [
-                    {
-                      "type": "<assigned allowed type>",
-                      "question": "...",
-                      "options": ["...", "..."],
-                      "correctAnswer": "...",
-                      "explanation": "...",
-                      "pronunciationText": null,
-                      "imageMatches": [{ "imageMediaId": "<one listed imageMediaId>", "target": "..." }],
-                      "orderedSegments": ["...", "..."],
-                      "categories": [{ "name": "...", "items": ["...", "..."] }],
-                      "referenceText": null
-                    }
-                  ]
-                }
-                """);
+            .AppendLine("Every object uses type, question, options, correctAnswer, and explanation. Add only the type-specific field named in TYPE RULES.")
+            .AppendLine("The type placeholder follows REQUESTED TYPE DISTRIBUTION and is not a literal value.")
+            .AppendLine("{\"exercises\":[{\"type\":\"<assigned allowed type>\",\"question\":\"...\",\"options\":[],\"correctAnswer\":null,\"explanation\":null}]}");
 
         return new ExerciseGenerationPrompt(SystemPrompt, prompt.ToString());
     }
@@ -113,28 +106,28 @@ public sealed class ExerciseGenerationPromptBuilder
         switch (type)
         {
             case ExerciseType.MultipleChoice:
-                prompt.AppendLine("- MultipleChoice: provide 2 to 8 unique options with plausible distractors; exactly one option is correct; correctAnswer must exactly match that option.");
+                prompt.AppendLine("- MultipleChoice: exactly 4 unique options unless the lesson genuinely requires fewer; question <=120 chars; each option <=40 chars; correctAnswer exactly matches one option; explanation <=80 chars.");
                 break;
             case ExerciseType.ImageMatching:
-                prompt.AppendLine("- ImageMatching: provide 2 to 8 imageMatches; use only imageMediaId values listed below; each ID and target must be unique; each target must unambiguously name or describe that image; never create image URLs or IDs.");
+                prompt.AppendLine("- ImageMatching: add only imageMatches with 2-4 items; each target <=40 chars; use only listed imageMediaId values; IDs and targets are unique; options=[]; correctAnswer=null; never create image URLs or IDs.");
                 prompt.AppendLine("  AVAILABLE IMAGE ASSETS:");
                 foreach (var image in availableImages)
                     prompt.AppendLine($"  - {image.ImageMediaId}: alt={image.AltText}; word={image.Word}; meaning={image.Meaning}");
                 break;
             case ExerciseType.AudioMatching:
-                prompt.AppendLine("- AudioMatching: pronunciationText must be a short pronounceable English word or phrase; provide 2 to 8 unique textual options; correctAnswer must exactly match one option; do not provide or invent audio URLs.");
+                prompt.AppendLine("- AudioMatching: add only pronunciationText (<=100 chars), preferably one word or short phrase; provide 2-4 unique options (<=40 chars); correctAnswer exactly matches one option; no audio URLs.");
                 break;
             case ExerciseType.Typing:
-                prompt.AppendLine("- Typing: use an empty options array and provide one concise, unambiguous correctAnswer of at most 500 characters.");
+                prompt.AppendLine("- Typing: question <=100 chars; options=[]; one unambiguous correctAnswer <=60 chars; explanation <=80 chars.");
                 break;
             case ExerciseType.SentenceOrdering:
-                prompt.AppendLine("- SentenceOrdering: orderedSegments must contain 2 to 20 meaningful tokens or short segments in the one intended grammatical order; avoid excessive length and alternative valid orderings; do not duplicate segments unless grammatically necessary.");
+                prompt.AppendLine("- SentenceOrdering: add only orderedSegments with 4-8 short segments forming one 5-10 word sentence; options=[]; correctAnswer=null; avoid compound sentences and alternative valid orders.");
                 break;
             case ExerciseType.Categorization:
-                prompt.AppendLine("- Categorization: provide 2 to 4 non-overlapping categories and 2 to 6 unique items per category; every item must belong unambiguously to exactly one category and remain in lesson scope.");
+                prompt.AppendLine("- Categorization: add only categories; exactly 2 short non-overlapping category names with 2-4 short items each; options=[]; correctAnswer=null; each item belongs to exactly one category.");
                 break;
             case ExerciseType.Speaking:
-                prompt.AppendLine("- Speaking: referenceText must be one short natural phrase or sentence for pronunciation practice; question is the learner-facing prompt; do not provide audio URLs and do not claim speech scoring is available.");
+                prompt.AppendLine("- Speaking: add only referenceText with 3-10 words and <=100 chars; options=[]; correctAnswer=null; explanation=null; no paragraphs, audio URLs, or speech-scoring metadata.");
                 break;
         }
     }

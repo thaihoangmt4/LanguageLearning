@@ -38,7 +38,6 @@ public sealed class GetExerciseGenerationSettingsQueryHandler(
             settings.MinimumExerciseThreshold,
             settings.TargetExerciseCount,
             settings.MaxExercisesPerLessonPerRun,
-            settings.GenerationBatchSize,
             DateTime.SpecifyKind(settings.UpdatedAtUtc, DateTimeKind.Utc),
             settings.UpdatedByUserId,
             settings.Version);

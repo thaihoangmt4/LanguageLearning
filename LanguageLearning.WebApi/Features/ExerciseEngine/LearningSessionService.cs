@@ -34,6 +34,8 @@ public sealed class LearningSessionService(
             return Result<LearningSessionResult>.Failure(resolution.Error);
         if (resolution.Value.State == LearningPathState.NoActiveAssignment)
             return Result<LearningSessionResult>.Failure(ExerciseWorkflowErrors.NoActiveAssignment);
+        if (resolution.Value.State == LearningPathState.NoPublishedContent)
+            return Result<LearningSessionResult>.Failure(ExerciseWorkflowErrors.NoPublishedContent);
         if (resolution.Value.State == LearningPathState.CourseCompleted)
             return Result<LearningSessionResult>.Failure(ExerciseWorkflowErrors.LearningPathCompleted);
 
@@ -47,6 +49,7 @@ public sealed class LearningSessionService(
                 .SingleAsync(x => x.Id == resolution.Value.LessonAttemptId, cancellationToken);
             resumed.LastAccessedAt = now;
             assignment.Status = UserCourseAssignmentStatus.InProgress;
+            assignment.CompletedAt = null;
             assignment.StartedAt ??= now;
             assignment.LastAccessedAt = now;
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -112,6 +115,7 @@ public sealed class LearningSessionService(
 
         dbContext.LessonAttempts.Add(attempt);
         assignment.Status = UserCourseAssignmentStatus.InProgress;
+        assignment.CompletedAt = null;
         assignment.StartedAt ??= now;
         assignment.LastAccessedAt = now;
         try

@@ -31,9 +31,6 @@ public sealed class ExerciseGenerationSettingsConfiguration
             table.HasCheckConstraint(
                 "CK_exercise_generation_settings_MaxPerRun",
                 $"\"MaxExercisesPerLessonPerRun\" BETWEEN 1 AND {ExerciseGenerationOptions.MaximumExercisesPerLessonPerRun}");
-            table.HasCheckConstraint(
-                "CK_exercise_generation_settings_BatchSize",
-                $"\"GenerationBatchSize\" BETWEEN 1 AND {ExerciseGenerationOptions.MaximumGenerationBatchSize}");
         });
 
         builder.HasKey(settings => settings.Id);
@@ -52,7 +49,6 @@ public sealed class ExerciseGenerationSettingsConfiguration
             MinimumExerciseThreshold = ExerciseGenerationOptions.DefaultMinimumExerciseThreshold,
             TargetExerciseCount = ExerciseGenerationOptions.DefaultTargetExerciseCount,
             MaxExercisesPerLessonPerRun = ExerciseGenerationOptions.DefaultMaxExercisesPerLessonPerRun,
-            GenerationBatchSize = ExerciseGenerationOptions.DefaultGenerationBatchSize,
             UpdatedAtUtc = InitialUpdatedAtUtc,
             UpdatedByUserId = (Guid?)null,
             Version = ExerciseGenerationSettings.InitialVersion

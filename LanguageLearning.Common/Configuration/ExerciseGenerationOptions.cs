@@ -13,20 +13,17 @@ public sealed class ExerciseGenerationOptions
     public const int DefaultMinimumExerciseThreshold = 20;
     public const int DefaultTargetExerciseCount = 40;
     public const int DefaultMaxExercisesPerLessonPerRun = 50;
-    public const int DefaultGenerationBatchSize = 20;
 
     public const int MaximumInitialDelayMinutes = 1_440;
     public const int MaximumIntervalHours = 168;
     public const int MaximumExerciseCount = 500;
     public const int MaximumExercisesPerLessonPerRun = 200;
-    public const int MaximumGenerationBatchSize = 50;
 
     public int InitialDelayMinutes { get; init; } = DefaultInitialDelayMinutes;
     public int IntervalHours { get; init; } = DefaultIntervalHours;
     public int MinimumExerciseThreshold { get; init; } = DefaultMinimumExerciseThreshold;
     public int TargetExerciseCount { get; init; } = DefaultTargetExerciseCount;
     public int MaxExercisesPerLessonPerRun { get; init; } = DefaultMaxExercisesPerLessonPerRun;
-    public int GenerationBatchSize { get; init; } = DefaultGenerationBatchSize;
 
     public void Validate()
     {
@@ -35,8 +32,7 @@ public sealed class ExerciseGenerationOptions
             IntervalHours,
             MinimumExerciseThreshold,
             TargetExerciseCount,
-            MaxExercisesPerLessonPerRun,
-            GenerationBatchSize);
+            MaxExercisesPerLessonPerRun);
         if (violations.Count > 0)
             throw new InvalidOperationException(
                 $"{SectionName}:{violations[0].PropertyName} {violations[0].Message}");
@@ -47,8 +43,7 @@ public sealed class ExerciseGenerationOptions
         int intervalHours,
         int minimumExerciseThreshold,
         int targetExerciseCount,
-        int maxExercisesPerLessonPerRun,
-        int generationBatchSize)
+        int maxExercisesPerLessonPerRun)
     {
         var violations = new List<ExerciseGenerationSettingViolation>();
         AddRangeViolation(violations, nameof(InitialDelayMinutes), initialDelayMinutes, 0, MaximumInitialDelayMinutes);
@@ -56,7 +51,6 @@ public sealed class ExerciseGenerationOptions
         AddRangeViolation(violations, nameof(MinimumExerciseThreshold), minimumExerciseThreshold, 0, MaximumExerciseCount);
         AddRangeViolation(violations, nameof(TargetExerciseCount), targetExerciseCount, 0, MaximumExerciseCount);
         AddRangeViolation(violations, nameof(MaxExercisesPerLessonPerRun), maxExercisesPerLessonPerRun, 1, MaximumExercisesPerLessonPerRun);
-        AddRangeViolation(violations, nameof(GenerationBatchSize), generationBatchSize, 1, MaximumGenerationBatchSize);
 
         if (targetExerciseCount < minimumExerciseThreshold)
         {

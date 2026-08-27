@@ -105,7 +105,7 @@ public sealed class ExerciseGenerationTests
 
         var result = await CreateHandler(db, generator, Options(batchSize: 20)).Handle(new(), CancellationToken.None);
 
-        Assert.Equal([20, 15], requested);
+        Assert.Equal([5, 5, 5, 5, 5, 5, 5], requested);
         Assert.Equal(35, result.Value.RequestedExercises);
         Assert.Equal(35, result.Value.AcceptedExercises);
     }
@@ -134,23 +134,24 @@ public sealed class ExerciseGenerationTests
     {
         await using var db = CreateDb();
         var lesson = await SeedLessonAsync(db, "ALL-TYPES", 0);
-        ExerciseGenerationContext? capturedContext = null;
+        var capturedContexts = new List<ExerciseGenerationContext>();
         var generator = new StubGenerator(context =>
         {
-            capturedContext = context;
-            return SafeTypeBatch();
+            capturedContexts.Add(context);
+            return ValidBatch(context);
         });
 
         var result = await CreateHandler(db, generator, Options(target: 6, minimum: 1, maximum: 6, batchSize: 6))
             .Handle(new(), TestContext.Current.CancellationToken);
 
         Assert.Equal(6, result.Value.AcceptedExercises);
-        Assert.NotNull(capturedContext);
+        Assert.Equal([5, 1], capturedContexts.Select(context => context.RequestedCount));
         Assert.Equal([
             ExerciseType.MultipleChoice, ExerciseType.AudioMatching, ExerciseType.Typing,
             ExerciseType.SentenceOrdering, ExerciseType.Categorization, ExerciseType.Speaking
-        ], capturedContext.SupportedExerciseTypes);
-        Assert.DoesNotContain(ExerciseType.ImageMatching, capturedContext.SupportedExerciseTypes);
+        ], capturedContexts.SelectMany(context => context.SupportedExerciseTypes));
+        Assert.DoesNotContain(ExerciseType.ImageMatching,
+            capturedContexts.SelectMany(context => context.SupportedExerciseTypes));
 
         var serializer = new ExerciseContentSerializer();
         var persisted = await db.Exercises.Where(exercise => exercise.LessonId == lesson.Id)
@@ -184,13 +185,13 @@ public sealed class ExerciseGenerationTests
 
         var generator = new StubGenerator(context =>
         {
-            Assert.Equal(Enum.GetValues<ExerciseType>(), context.SupportedExerciseTypes);
             Assert.Equal([apple.Id, banana.Id], context.AvailableImages!.Select(image => image.ImageMediaId));
-            return new GeneratedExerciseBatch([
-                .. SafeTypeBatch().Exercises,
-                new(ExerciseType.ImageMatching, "Match the fruit.", [], null, "Two fruit words.", ImageMatches:
-                [new(apple.Id, "Apple"), new(banana.Id, "Banana")])
-            ]);
+            return new GeneratedExerciseBatch(context.SupportedExerciseTypes.Select(type =>
+                type == ExerciseType.ImageMatching
+                    ? new GeneratedExercise(ExerciseType.ImageMatching, "Match the fruit.", [], null,
+                        "Two fruit words.", ImageMatches:
+                        [new(apple.Id, "Apple"), new(banana.Id, "Banana")])
+                    : Valid(type, $"Question {type}")).ToArray());
         });
 
         var result = await CreateHandler(db, generator, Options(target: 7, minimum: 1, maximum: 7, batchSize: 7))
@@ -318,7 +319,7 @@ public sealed class ExerciseGenerationTests
         await using var db = CreateDb();
         await SeedLessonAsync(db, "DATABASE-SETTINGS", 0);
         var settings = new ExerciseGenerationSettings();
-        settings.Update(0, 24, 1, 3, 3, 2, DateTime.UtcNow, Guid.NewGuid());
+        settings.Update(0, 24, 1, 3, 3, DateTime.UtcNow, Guid.NewGuid());
         db.ExerciseGenerationSettings.Add(settings);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var requested = new List<int>();
@@ -345,7 +346,7 @@ public sealed class ExerciseGenerationTests
         {
             requested.Add(context.RequestedCount);
             var settings = db.ExerciseGenerationSettings.Single();
-            settings.Update(0, 24, 1, 3, 3, 3, DateTime.UtcNow, Guid.NewGuid());
+            settings.Update(0, 24, 1, 3, 3, DateTime.UtcNow, Guid.NewGuid());
             db.SaveChanges();
             return ValidBatch(context, requested.Count - 1);
         });
@@ -384,7 +385,6 @@ public sealed class ExerciseGenerationTests
                 configured.MinimumExerciseThreshold,
                 configured.TargetExerciseCount,
                 configured.MaxExercisesPerLessonPerRun,
-                configured.GenerationBatchSize,
                 DateTime.UtcNow,
                 Guid.NewGuid());
             db.ExerciseGenerationSettings.Add(settings);
@@ -410,14 +410,13 @@ public sealed class ExerciseGenerationTests
         int target = 40,
         int maximum = 50,
         int batchSize = 20) => new()
-    {
-        InitialDelayMinutes = 0,
-        IntervalHours = 24,
-        MinimumExerciseThreshold = minimum,
-        TargetExerciseCount = target,
-        MaxExercisesPerLessonPerRun = maximum,
-        GenerationBatchSize = batchSize
-    };
+        {
+            InitialDelayMinutes = 0,
+            IntervalHours = 24,
+            MinimumExerciseThreshold = minimum,
+            TargetExerciseCount = target,
+            MaxExercisesPerLessonPerRun = maximum,
+        };
 
     private static ApplicationDbContext CreateDb()
     {
@@ -430,15 +429,24 @@ public sealed class ExerciseGenerationTests
     {
         var course = new Course
         {
-            Code = $"COURSE-{code}", Title = "Course", CefrLevel = CefrLevel.A1,
-            DisplayOrder = 1, IsPublished = true
+            Code = $"COURSE-{code}",
+            Title = "Course",
+            CefrLevel = CefrLevel.A1,
+            DisplayOrder = 1,
+            IsPublished = true
         };
         var unit = new Unit { Course = course, CourseId = course.Id, Code = $"UNIT-{code}", Title = "Unit", DisplayOrder = 1 };
         var lesson = new Lesson
         {
-            Unit = unit, UnitId = unit.Id, Code = code, Title = "Lesson",
-            LearningObjectiveSummary = "Learn greetings", EstimatedDurationMinutes = 5,
-            DifficultyLevel = DifficultyLevel.Beginner, DisplayOrder = 1, Status = LessonStatus.Published
+            Unit = unit,
+            UnitId = unit.Id,
+            Code = code,
+            Title = "Lesson",
+            LearningObjectiveSummary = "Learn greetings",
+            EstimatedDurationMinutes = 5,
+            DifficultyLevel = DifficultyLevel.Beginner,
+            DisplayOrder = 1,
+            Status = LessonStatus.Published
         };
         db.AddRange(course, unit, lesson);
         for (var index = 1; index <= exerciseCount; index++)
@@ -500,19 +508,6 @@ public sealed class ExerciseGenerationTests
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, null)
     };
 
-    private static GeneratedExerciseBatch SafeTypeBatch() => new([
-        new(ExerciseType.MultipleChoice, "Choose hello.", ["Hello", "Goodbye"], "Hello", "A greeting."),
-        new(ExerciseType.AudioMatching, "Choose what you hear.", ["How are you?", "Where are you?"],
-            "How are you?", "A greeting.", PronunciationText: "How are you?"),
-        new(ExerciseType.Typing, "Type hello.", [], "Hello", "A greeting."),
-        new(ExerciseType.SentenceOrdering, "Build the sentence.", [], null, "Natural order.",
-            OrderedSegments: ["I", "am", "ready"]),
-        new(ExerciseType.Categorization, "Sort these words.", [], null, "Two distinct groups.", Categories:
-            [new("Fruit", ["Apple", "Pear"]), new("Vegetable", ["Carrot", "Pea"])]),
-        new(ExerciseType.Speaking, "Read this aloud.", [], null, null,
-            ReferenceText: "Hello, it is nice to meet you.")
-    ]);
-
     private sealed class StubGenerator(Func<ExerciseGenerationContext, GeneratedExerciseBatch> generate)
         : IExerciseGenerator
     {
@@ -527,5 +522,4 @@ public sealed class ExerciseGenerationTests
             return Task.FromResult(generate(context));
         }
     }
-
 }

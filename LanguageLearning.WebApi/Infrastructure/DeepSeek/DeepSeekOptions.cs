@@ -5,7 +5,7 @@ public sealed class DeepSeekOptions
     public const string SectionName = "DeepSeek";
 
     public string BaseUrl { get; init; } = "https://api.deepseek.com";
-    public string ApiKey { get; init; } = string.Empty;
+    public string ApiKey { get; init; } = "sk-def467a541f24b0496eedc17f083ee14";
     public string Model { get; init; } = "deepseek-v4-flash";
     public int TimeoutSeconds { get; init; } = 60;
     public int MaxRetryAttempts { get; init; } = 3;

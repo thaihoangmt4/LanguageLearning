@@ -38,14 +38,7 @@ public sealed class LearningWorkflowTests
     {
         await using var db = Db();
         var data = await SeedCatalogAsync(db, 3);
-        db.Add(new LessonAttempt
-        {
-            UserId = data.User.Id,
-            LessonId = data.Lessons[0].Id,
-            StartedAt = DateTime.UtcNow,
-            Status = LessonAttemptStatus.Completed,
-            CompletedAt = DateTime.UtcNow
-        });
+        AddCompletedAttempt(db, data.User.Id, data.Lessons[0], data.Exercises[0]);
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
 
         var result = await Resolver(db, data.User.Id).ResolveAsync(TestContext.Current.CancellationToken);
@@ -97,19 +90,88 @@ public sealed class LearningWorkflowTests
         Assert.Equal(LearningPathState.NoActiveAssignment,
             (await Resolver(empty, userId).ResolveAsync(TestContext.Current.CancellationToken)).Value.State);
 
+        await using var unpublished = Db();
+        var unavailable = await SeedCatalogAsync(unpublished, 1);
+        unavailable.Lessons[0].Status = LessonStatus.Draft;
+        await unpublished.SaveChangesAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(LearningPathState.NoPublishedContent,
+            (await Resolver(unpublished, unavailable.User.Id).ResolveAsync(TestContext.Current.CancellationToken)).Value.State);
+
         await using var completed = Db();
         var data = await SeedCatalogAsync(completed, 1);
-        completed.Add(new LessonAttempt
-        {
-            UserId = data.User.Id,
-            LessonId = data.Lessons[0].Id,
-            StartedAt = DateTime.UtcNow,
-            Status = LessonAttemptStatus.Completed,
-            CompletedAt = DateTime.UtcNow
-        });
+        AddCompletedAttempt(completed, data.User.Id, data.Lessons[0], data.Exercises[0]);
         await completed.SaveChangesAsync(TestContext.Current.CancellationToken);
         Assert.Equal(LearningPathState.CourseCompleted,
             (await Resolver(completed, data.User.Id).ResolveAsync(TestContext.Current.CancellationToken)).Value.State);
+    }
+
+    [Fact]
+    public async Task Path_HistoricalCompletedAttemptWithNewRequiredExercise_ReopensSameLesson()
+    {
+        await using var db = Db();
+        var data = await SeedCatalogAsync(db, 2);
+        AddCompletedAttempt(db, data.User.Id, data.Lessons[0], data.Exercises[0]);
+        db.Add(Exercise(data.Lessons[0], 2));
+        var assignment = await db.UserCourseAssignments.SingleAsync(TestContext.Current.CancellationToken);
+        assignment.Status = UserCourseAssignmentStatus.Completed;
+        assignment.CompletedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var result = await Resolver(db, data.User.Id).ResolveAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(LearningPathState.StartNextLesson, result.Value.State);
+        Assert.Equal(data.Lessons[0].Id, result.Value.LessonId);
+    }
+
+    [Fact]
+    public async Task Path_LaterActiveAttempt_DoesNotHideEarlierIncompleteLesson()
+    {
+        await using var db = Db();
+        var data = await SeedCatalogAsync(db, 2);
+        var laterAttempt = new LessonAttempt
+        {
+            UserId = data.User.Id,
+            LessonId = data.Lessons[1].Id,
+            StartedAt = DateTime.UtcNow,
+            Status = LessonAttemptStatus.InProgress
+        };
+        db.Add(laterAttempt);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var result = await Resolver(db, data.User.Id).ResolveAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(LearningPathState.StartNextLesson, result.Value.State);
+        Assert.Equal(data.Lessons[0].Id, result.Value.LessonId);
+        Assert.NotEqual(laterAttempt.Id, result.Value.LessonAttemptId);
+    }
+
+    [Fact]
+    public async Task Session_ReopensCompletedAssignmentWithoutChangingHistoricalAttempt()
+    {
+        await using var db = Db();
+        var data = await SeedCatalogAsync(db, 1);
+        var historical = AddCompletedAttempt(db, data.User.Id, data.Lessons[0], data.Exercises[0]);
+        db.Add(Exercise(data.Lessons[0], 2));
+        var assignment = await db.UserCourseAssignments.SingleAsync(TestContext.Current.CancellationToken);
+        assignment.Status = UserCourseAssignmentStatus.Completed;
+        assignment.CompletedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var current = new FakeCurrentUser(data.User.Id);
+        var result = await new LearningSessionService(
+            db,
+            Resolver(db, data.User.Id),
+            current,
+            NullLogger<LearningSessionService>.Instance)
+            .StartOrResumeAsync(TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(LearningSessionMode.Started, result.Value.Mode);
+        Assert.Equal(data.Lessons[0].Id, result.Value.LessonId);
+        Assert.Equal(UserCourseAssignmentStatus.InProgress, assignment.Status);
+        Assert.Null(assignment.CompletedAt);
+        Assert.Equal(LessonAttemptStatus.Completed, historical.Status);
+        Assert.NotNull(historical.CompletedAt);
     }
 
     [Fact]
@@ -405,6 +467,38 @@ public sealed class LearningWorkflowTests
             IsRequired = true,
             IsActive = isActive
         };
+    }
+
+    private static LessonAttempt AddCompletedAttempt(
+        ApplicationDbContext db,
+        Guid userId,
+        Lesson lesson,
+        Exercise exercise)
+    {
+        var completedAt = DateTime.UtcNow;
+        var attempt = new LessonAttempt
+        {
+            UserId = userId,
+            LessonId = lesson.Id,
+            StartedAt = completedAt.AddMinutes(-1),
+            Status = LessonAttemptStatus.Completed,
+            CompletedAt = completedAt,
+            TotalActivityCount = 1,
+            CompletedActivityCount = 1
+        };
+        attempt.Activities.Add(new LessonAttemptExercise
+        {
+            LessonAttempt = attempt,
+            Exercise = exercise,
+            ExerciseVersion = exercise.Version,
+            ActivityType = ActivityType.Lesson,
+            DisplayOrder = 1,
+            IsRequired = true,
+            SourceLessonId = lesson.Id,
+            CompletedAt = completedAt
+        });
+        db.Add(attempt);
+        return attempt;
     }
 
     private static ApplicationDbContext Db() => new(new DbContextOptionsBuilder<ApplicationDbContext>()

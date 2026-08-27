@@ -81,7 +81,6 @@ public sealed class ExerciseGenerationBackgroundService(
                     value.MinimumExerciseThreshold,
                     value.TargetExerciseCount,
                     value.MaxExercisesPerLessonPerRun,
-                    value.GenerationBatchSize,
                     value.UpdatedAtUtc,
                     value.UpdatedByUserId,
                     value.Version))
@@ -103,7 +102,6 @@ public sealed class ExerciseGenerationBackgroundService(
                 bootstrapOptions.MinimumExerciseThreshold,
                 bootstrapOptions.TargetExerciseCount,
                 bootstrapOptions.MaxExercisesPerLessonPerRun,
-                bootstrapOptions.GenerationBatchSize,
                 DateTime.UnixEpoch,
                 null,
                 Guid.Empty);
