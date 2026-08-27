@@ -58,7 +58,7 @@ public sealed class ExerciseGenerationTests
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var generator = new StubGenerator(context => ValidBatch(context));
 
-        var result = await CreateHandler(db, generator, Options(target: 1, minimum: 1, maximum: 1, batchSize: 1))
+        var result = await CreateHandler(db, generator, Options(target: 1, minimum: 1, maximum: 1))
             .Handle(new(), TestContext.Current.CancellationToken);
 
         Assert.True(result.IsSuccess);
@@ -79,7 +79,7 @@ public sealed class ExerciseGenerationTests
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var generator = new StubGenerator(context => ValidBatch(context));
 
-        var result = await CreateHandler(db, generator, Options(target: 1, minimum: 1, maximum: 1, batchSize: 1))
+        var result = await CreateHandler(db, generator, Options(target: 1, minimum: 1, maximum: 1))
             .Handle(new(), TestContext.Current.CancellationToken);
 
         Assert.True(result.IsSuccess);
@@ -91,7 +91,7 @@ public sealed class ExerciseGenerationTests
     }
 
     [Fact]
-    public async Task BelowThreshold_RequestsTargetQuantityInConfiguredBatches()
+    public async Task BelowThreshold_RequestsTargetQuantityWithinProviderSafetyLimit()
     {
         await using var db = CreateDb();
         await SeedLessonAsync(db, "BELOW", 5);
@@ -103,7 +103,7 @@ public sealed class ExerciseGenerationTests
             return ValidBatch(context, offset);
         });
 
-        var result = await CreateHandler(db, generator, Options(batchSize: 20)).Handle(new(), CancellationToken.None);
+        var result = await CreateHandler(db, generator).Handle(new(), CancellationToken.None);
 
         Assert.Equal([5, 5, 5, 5, 5, 5, 5], requested);
         Assert.Equal(35, result.Value.RequestedExercises);
@@ -120,7 +120,7 @@ public sealed class ExerciseGenerationTests
             new(ExerciseType.MultipleChoice, "Invalid question", ["A", "B"], "C", null)
         ]));
 
-        var result = await CreateHandler(db, generator, Options(target: 2, minimum: 1, batchSize: 2))
+        var result = await CreateHandler(db, generator, Options(target: 2, minimum: 1))
             .Handle(new(), CancellationToken.None);
 
         Assert.Equal(1, result.Value.AcceptedExercises);
@@ -141,7 +141,7 @@ public sealed class ExerciseGenerationTests
             return ValidBatch(context);
         });
 
-        var result = await CreateHandler(db, generator, Options(target: 6, minimum: 1, maximum: 6, batchSize: 6))
+        var result = await CreateHandler(db, generator, Options(target: 6, minimum: 1, maximum: 6))
             .Handle(new(), TestContext.Current.CancellationToken);
 
         Assert.Equal(6, result.Value.AcceptedExercises);
@@ -194,7 +194,7 @@ public sealed class ExerciseGenerationTests
                     : Valid(type, $"Question {type}")).ToArray());
         });
 
-        var result = await CreateHandler(db, generator, Options(target: 7, minimum: 1, maximum: 7, batchSize: 7))
+        var result = await CreateHandler(db, generator, Options(target: 7, minimum: 1, maximum: 7))
             .Handle(new(), TestContext.Current.CancellationToken);
 
         Assert.Equal(7, result.Value.AcceptedExercises);
@@ -220,7 +220,7 @@ public sealed class ExerciseGenerationTests
             Valid("Hello, WORLD!"), Valid(" hello world ")
         ]));
 
-        var result = await CreateHandler(db, generator, Options(target: 2, minimum: 1, batchSize: 2))
+        var result = await CreateHandler(db, generator, Options(target: 2, minimum: 1))
             .Handle(new(), CancellationToken.None);
 
         Assert.Equal(1, result.Value.AcceptedExercises);
@@ -236,7 +236,7 @@ public sealed class ExerciseGenerationTests
             Valid("Question one"), Valid("Question two"), Valid("Question three")
         ]));
 
-        var result = await CreateHandler(db, generator, Options(target: 3, minimum: 1, maximum: 3, batchSize: 3))
+        var result = await CreateHandler(db, generator, Options(target: 3, minimum: 1, maximum: 3))
             .Handle(new(), TestContext.Current.CancellationToken);
 
         Assert.Equal(1, result.Value.AcceptedExercises);
@@ -250,20 +250,21 @@ public sealed class ExerciseGenerationTests
         var lesson = await SeedLessonAsync(db, "DUP-DB", 0);
         db.Exercises.Add(Exercise(lesson.Id, 1, ExerciseContentHasher.Compute(ExerciseType.MultipleChoice, "Existing?")));
         await db.SaveChangesAsync(TestContext.Current.CancellationToken);
-        var call = 0;
         var generator = new StubGenerator(context =>
-        {
-            var type = Assert.Single(context.SupportedExerciseTypes);
-            return new GeneratedExerciseBatch([
-                Valid(type, call++ == 0 ? "existing" : "new question")
-            ]);
-        });
+            new GeneratedExerciseBatch(context.SupportedExerciseTypes
+                .Select((type, index) => Valid(
+                    type,
+                    index == 0 ? "existing" : $"new question {type}"))
+                .ToArray()));
 
-        var result = await CreateHandler(db, generator, Options(target: 3, minimum: 2, batchSize: 1))
+        var result = await CreateHandler(db, generator, Options(target: 3, minimum: 2))
             .Handle(new(), CancellationToken.None);
 
         Assert.Equal(1, result.Value.AcceptedExercises);
         Assert.Equal(1, result.Value.RejectedExercises);
+        Assert.Equal(2, await db.Exercises.CountAsync(
+            exercise => exercise.LessonId == lesson.Id,
+            TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -276,7 +277,7 @@ public sealed class ExerciseGenerationTests
             ? throw new ExerciseGenerationException("provider unavailable")
             : ValidBatch(context));
 
-        var result = await CreateHandler(db, generator, Options(target: 1, minimum: 1, batchSize: 1))
+        var result = await CreateHandler(db, generator, Options(target: 1, minimum: 1))
             .Handle(new(), CancellationToken.None);
 
         Assert.Equal(1, result.Value.FailedLessons);
@@ -292,7 +293,7 @@ public sealed class ExerciseGenerationTests
         var generator = new StubGenerator(_ => throw new InvalidOperationException("implementation defect"));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            CreateHandler(db, generator, Options(target: 1, minimum: 1, batchSize: 1))
+            CreateHandler(db, generator, Options(target: 1, minimum: 1))
                 .Handle(new(), TestContext.Current.CancellationToken));
     }
 
@@ -309,7 +310,7 @@ public sealed class ExerciseGenerationTests
         });
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            CreateHandler(db, generator, Options(target: 1, minimum: 1, batchSize: 1))
+            CreateHandler(db, generator, Options(target: 1, minimum: 1))
                 .Handle(new(), source.Token));
     }
 
@@ -332,7 +333,9 @@ public sealed class ExerciseGenerationTests
             .Handle(new(), TestContext.Current.CancellationToken);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal([2, 1], requested);
+        Assert.Equal([3], requested);
+        Assert.Equal(1, result.Value.EligibleLessons);
+        Assert.Equal(3, result.Value.RequestedExercises);
         Assert.Equal(3, result.Value.AcceptedExercises);
     }
 
@@ -340,26 +343,33 @@ public sealed class ExerciseGenerationTests
     public async Task GenerationRun_UsesOneImmutableSettingsSnapshot()
     {
         await using var db = CreateDb();
-        await SeedLessonAsync(db, "SNAPSHOT", 0);
+        await SeedLessonAsync(db, "SNAPSHOT-A", 0);
+        await SeedLessonAsync(db, "SNAPSHOT-B", 0);
         var requested = new List<int>();
         var generator = new StubGenerator(context =>
         {
             requested.Add(context.RequestedCount);
-            var settings = db.ExerciseGenerationSettings.Single();
-            settings.Update(0, 24, 1, 3, 3, DateTime.UtcNow, Guid.NewGuid());
-            db.SaveChanges();
+            if (requested.Count == 1)
+            {
+                var settings = db.ExerciseGenerationSettings.Single();
+                settings.Update(0, 24, 1, 1, 1, DateTime.UtcNow, Guid.NewGuid());
+                db.SaveChanges();
+            }
             return ValidBatch(context, requested.Count - 1);
         });
 
         var handler = CreateHandler(
             db,
             generator,
-            Options(minimum: 1, target: 3, maximum: 3, batchSize: 1));
+            Options(minimum: 1, target: 3, maximum: 3));
 
-        await handler
+        var result = await handler
             .Handle(new(), TestContext.Current.CancellationToken);
 
-        Assert.Equal([1, 1, 1], requested);
+        Assert.True(result.IsSuccess);
+        Assert.Equal([3, 3], requested);
+        Assert.Equal(6, result.Value.RequestedExercises);
+        Assert.Equal(6, result.Value.AcceptedExercises);
     }
 
     [Fact]
@@ -408,8 +418,7 @@ public sealed class ExerciseGenerationTests
     private static ExerciseGenerationOptions Options(
         int minimum = 20,
         int target = 40,
-        int maximum = 50,
-        int batchSize = 20) => new()
+        int maximum = 50) => new()
         {
             InitialDelayMinutes = 0,
             IntervalHours = 24,

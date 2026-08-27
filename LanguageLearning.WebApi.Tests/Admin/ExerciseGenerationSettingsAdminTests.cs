@@ -158,10 +158,8 @@ public sealed class ExerciseGenerationSettingsAdminTests
     [InlineData(0, 0, 20, 40, 50)]
     [InlineData(0, 24, -1, 40, 50)]
     [InlineData(0, 24, 20, 40, 0)]
-    [InlineData(0, 24, 20, 40, 50)]
     [InlineData(0, 169, 20, 40, 50)]
     [InlineData(0, 24, 20, 501, 50)]
-    [InlineData(0, 24, 20, 40, 50)]
     public async Task InvalidOperationalValues_AreRejected(
         int initialDelay,
         int interval,
@@ -177,6 +175,19 @@ public sealed class ExerciseGenerationSettingsAdminTests
             TestContext.Current.CancellationToken);
 
         Assert.False(result.IsValid);
+    }
+
+    [Fact]
+    public async Task ZeroInitialDelay_IsValid()
+    {
+        var validator = new UpdateExerciseGenerationSettingsCommandValidator();
+
+        var result = await validator.ValidateAsync(
+            new UpdateExerciseGenerationSettingsCommand(
+                0, 24, 20, 40, 50, Guid.NewGuid()),
+            TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsValid);
     }
 
     [Fact]
