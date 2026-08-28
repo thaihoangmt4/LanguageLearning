@@ -7,6 +7,7 @@ using LanguageLearning.WebApi.Services;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using ExerciseGenerationSettingsEntity = LanguageLearning.Common.Entities.ExerciseGeneration.ExerciseGenerationSettings;
+using SystemSettingsEntity = LanguageLearning.Common.Entities.Settings.SystemSettings;
 
 namespace LanguageLearning.WebApi.Features.Admin.ExerciseGenerationSettings;
 
@@ -16,7 +17,8 @@ public sealed record UpdateExerciseGenerationSettingsCommand(
     int MinimumExerciseThreshold,
     int TargetExerciseCount,
     int MaxExercisesPerLessonPerRun,
-    Guid Version) : IRequest<Result<ExerciseGenerationSettingsResponse>>;
+    Guid Version,
+    bool Enabled = true) : IRequest<Result<ExerciseGenerationSettingsResponse>>;
 
 public sealed class UpdateExerciseGenerationSettingsCommandValidator
     : AbstractValidator<UpdateExerciseGenerationSettingsCommand>
@@ -70,14 +72,26 @@ public sealed class UpdateExerciseGenerationSettingsCommandHandler(
         }
 
         var oldIntervalHours = settings.IntervalHours;
+        var systemSettings = await dbContext.SystemSettings.SingleOrDefaultAsync(
+            value => value.Id == SystemSettingsEntity.SingletonId,
+            cancellationToken);
+        if (systemSettings is null)
+        {
+            systemSettings = new SystemSettingsEntity();
+            dbContext.SystemSettings.Add(systemSettings);
+        }
+
+        var oldEnabled = systemSettings.ExerciseGenerationEnabled;
+        var updatedAtUtc = timeProvider.GetUtcNow().UtcDateTime;
         settings.Update(
             request.InitialDelayMinutes,
             request.IntervalHours,
             request.MinimumExerciseThreshold,
             request.TargetExerciseCount,
             request.MaxExercisesPerLessonPerRun,
-            timeProvider.GetUtcNow().UtcDateTime,
+            updatedAtUtc,
             adminUserId);
+        systemSettings.SetExerciseGenerationEnabled(request.Enabled, updatedAtUtc, adminUserId);
 
         try
         {
@@ -90,12 +104,16 @@ public sealed class UpdateExerciseGenerationSettingsCommandHandler(
         }
 
         logger.LogInformation(
-            "Exercise generation settings updated by AdminUserId {AdminUserId}, OldIntervalHours {OldIntervalHours}, NewIntervalHours {NewIntervalHours}",
+            "Exercise generation settings updated by AdminUserId {AdminUserId}, OldEnabled {OldEnabled}, NewEnabled {NewEnabled}, OldIntervalHours {OldIntervalHours}, NewIntervalHours {NewIntervalHours}",
             adminUserId,
+            oldEnabled,
+            systemSettings.ExerciseGenerationEnabled,
             oldIntervalHours,
             settings.IntervalHours);
 
         return Result<ExerciseGenerationSettingsResponse>.Success(
-            GetExerciseGenerationSettingsQueryHandler.ToResponse(settings));
+            GetExerciseGenerationSettingsQueryHandler.ToResponse(
+                settings,
+                systemSettings.ExerciseGenerationEnabled));
     }
 }

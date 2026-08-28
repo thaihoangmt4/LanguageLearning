@@ -1,6 +1,7 @@
 using FluentValidation;
 using LanguageLearning.Common.Entities.ExerciseEngine;
 using LanguageLearning.Common.Entities.ExerciseGeneration;
+using LanguageLearning.Common.Entities.Settings;
 using LanguageLearning.Common.Enums;
 using LanguageLearning.Common.ExerciseEngine;
 using LanguageLearning.Common.ExerciseEngine.Models;
@@ -12,7 +13,8 @@ using System.Diagnostics;
 
 namespace LanguageLearning.WebApi.Features.ExerciseGeneration.Commands;
 
-public sealed record GenerateExercisesCommand : IRequest<Result<GenerateExercisesResult>>;
+public sealed record GenerateExercisesCommand(bool IsScheduled = false)
+    : IRequest<Result<GenerateExercisesResult>>;
 
 public sealed record GenerateExercisesResult(
     int EligibleLessons,
@@ -48,6 +50,23 @@ public sealed class GenerateExercisesCommandHandler(
         GenerateExercisesCommand request,
         CancellationToken cancellationToken)
     {
+        var generationEnabled = await dbContext.SystemSettings
+            .AsNoTracking()
+            .Where(value => value.Id == SystemSettings.SingletonId)
+            .Select(value => (bool?)value.ExerciseGenerationEnabled)
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? true;
+        if (!generationEnabled)
+        {
+            logger.LogInformation(
+                "AI exercise generation skipped. Reason: DisabledBySystemSetting");
+
+            return request.IsScheduled
+                ? Result<GenerateExercisesResult>.Success(new(0, 0, 0, 0, 0, 0, 0))
+                : Result<GenerateExercisesResult>.Failure(
+                    ExerciseGenerationSettingsErrors.Disabled);
+        }
+
         var stopwatch = Stopwatch.StartNew();
         var settings = await dbContext.ExerciseGenerationSettings
             .AsNoTracking()

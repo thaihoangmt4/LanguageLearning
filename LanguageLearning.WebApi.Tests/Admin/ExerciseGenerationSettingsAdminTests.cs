@@ -1,8 +1,10 @@
 using System.Reflection;
 using System.Security.Claims;
+using System.Text.Json;
 using LanguageLearning.Common.Configuration;
 using LanguageLearning.Common.Constants;
 using LanguageLearning.Common.Entities.ExerciseGeneration;
+using LanguageLearning.Common.Entities.Settings;
 using LanguageLearning.Common.Persistence;
 using LanguageLearning.WebApi.Controllers;
 using LanguageLearning.WebApi.Features.Admin.ExerciseGenerationSettings;
@@ -19,16 +21,34 @@ namespace LanguageLearning.WebApi.Tests.Admin;
 public sealed class ExerciseGenerationSettingsAdminTests
 {
     [Fact]
+    public async Task Get_DefaultsEnabledToTrueWhenSystemSettingsRowIsMissing()
+    {
+        await using var db = CreateDb();
+        await SeedSettingsAsync(db);
+
+        var result = await new GetExerciseGenerationSettingsQueryHandler(db)
+            .Handle(new(), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value.Enabled);
+    }
+
+    [Fact]
     public async Task Get_ReturnsCurrentDatabaseSettings()
     {
         await using var db = CreateDb();
         var entity = await SeedSettingsAsync(db);
+        var systemSettings = new SystemSettings();
+        systemSettings.SetExerciseGenerationEnabled(false, DateTime.UtcNow, Guid.NewGuid());
+        db.SystemSettings.Add(systemSettings);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
         var handler = new GetExerciseGenerationSettingsQueryHandler(db);
 
         var result = await handler.Handle(new(), TestContext.Current.CancellationToken);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(entity.Version, result.Value.Version);
+        Assert.False(result.Value.Enabled);
         Assert.Equal(ExerciseGenerationOptions.DefaultIntervalHours, result.Value.IntervalHours);
     }
 
@@ -47,10 +67,11 @@ public sealed class ExerciseGenerationSettingsAdminTests
             NullLogger<UpdateExerciseGenerationSettingsCommandHandler>.Instance);
 
         var result = await handler.Handle(
-            new(5, 12, 10, 30, 40, entity.Version),
+            new(5, 12, 10, 30, 40, entity.Version, Enabled: false),
             TestContext.Current.CancellationToken);
 
         Assert.True(result.IsSuccess);
+        Assert.False(result.Value.Enabled);
         Assert.Equal(5, result.Value.InitialDelayMinutes);
         Assert.Equal(12, result.Value.IntervalHours);
         Assert.Equal(10, result.Value.MinimumExerciseThreshold);
@@ -65,6 +86,20 @@ public sealed class ExerciseGenerationSettingsAdminTests
             TestContext.Current.CancellationToken);
         Assert.Equal(now.UtcDateTime, persisted.UpdatedAtUtc);
         Assert.Equal(adminUserId, persisted.UpdatedByUserId);
+        var persistedSystemSettings = await db.SystemSettings.SingleAsync(
+            TestContext.Current.CancellationToken);
+        Assert.False(persistedSystemSettings.ExerciseGenerationEnabled);
+        Assert.Equal(now.UtcDateTime, persistedSystemSettings.UpdatedAtUtc);
+        Assert.Equal(adminUserId, persistedSystemSettings.UpdatedByUserId);
+
+        var reEnabled = await handler.Handle(
+            new(5, 12, 10, 30, 40, result.Value.Version),
+            TestContext.Current.CancellationToken);
+
+        Assert.True(reEnabled.IsSuccess);
+        Assert.True(reEnabled.Value.Enabled);
+        Assert.Equal(1, await db.SystemSettings.CountAsync(
+            TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -83,7 +118,7 @@ public sealed class ExerciseGenerationSettingsAdminTests
             new(0, 12, 10, 30, 40, originalVersion),
             TestContext.Current.CancellationToken);
         var stale = await handler.Handle(
-            new(0, 48, 10, 30, 40, originalVersion),
+            new(0, 48, 10, 30, 40, originalVersion, Enabled: false),
             TestContext.Current.CancellationToken);
 
         Assert.True(first.IsSuccess);
@@ -106,7 +141,7 @@ public sealed class ExerciseGenerationSettingsAdminTests
             NullLogger<UpdateExerciseGenerationSettingsCommandHandler>.Instance);
 
         var result = await handler.Handle(
-            new(0, 24, 20, 40, 50, Guid.NewGuid()),
+            new(0, 24, 20, 40, 50, Guid.NewGuid(), Enabled: false),
             TestContext.Current.CancellationToken);
 
         Assert.True(result.IsFailure);
@@ -188,6 +223,17 @@ public sealed class ExerciseGenerationSettingsAdminTests
             TestContext.Current.CancellationToken);
 
         Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void UpdateRequest_OmittedEnabledPreservesBackwardCompatibleTrueDefault()
+    {
+        var request = JsonSerializer.Deserialize<UpdateExerciseGenerationSettingsRequest>(
+            """{"initialDelayMinutes":0,"intervalHours":24,"minimumExerciseThreshold":20,"targetExerciseCount":40,"maxExercisesPerLessonPerRun":50,"version":"6d332c99-0a93-4cc0-a400-24931e424240"}""",
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        Assert.NotNull(request);
+        Assert.True(request.Enabled);
     }
 
     [Fact]

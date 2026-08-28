@@ -2,6 +2,7 @@ using LanguageLearning.Common.Configuration;
 using LanguageLearning.Common.Entities.ExerciseEngine;
 using LanguageLearning.Common.Entities.ExerciseGeneration;
 using LanguageLearning.Common.Entities.LearningCatalog;
+using LanguageLearning.Common.Entities.Settings;
 using LanguageLearning.Common.Enums;
 using LanguageLearning.Common.ExerciseEngine.Models;
 using LanguageLearning.Common.ExerciseEngine.Serialization;
@@ -18,6 +19,65 @@ namespace LanguageLearning.WebApi.Tests.ExerciseGeneration;
 
 public sealed class ExerciseGenerationTests
 {
+    [Fact]
+    public async Task DisabledManualRun_ReturnsBusinessFailureWithoutCallingProvider()
+    {
+        await using var db = CreateDb();
+        db.SystemSettings.Add(DisabledSystemSettings());
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var generator = new StubGenerator(_ => ValidBatch(1));
+
+        var result = await CreateHandler(db, generator)
+            .Handle(new GenerateExercisesCommand(), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ExerciseGenerationSettingsErrors.Disabled, result.Error);
+        Assert.Equal(0, generator.CallCount);
+    }
+
+    [Fact]
+    public async Task DisabledScheduledRun_SucceedsWithoutCallingProvider()
+    {
+        await using var db = CreateDb();
+        db.SystemSettings.Add(DisabledSystemSettings());
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var generator = new StubGenerator(_ => ValidBatch(1));
+
+        var result = await CreateHandler(db, generator)
+            .Handle(new GenerateExercisesCommand(IsScheduled: true), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(0, result.Value.RequestedExercises);
+        Assert.Equal(0, generator.CallCount);
+        Assert.Equal(0, await db.Exercises.CountAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ReEnabledSubsequentRun_CallsProviderAndPersistsExercises()
+    {
+        await using var db = CreateDb();
+        await SeedLessonAsync(db, "RE-ENABLED", 0);
+        var systemSettings = DisabledSystemSettings();
+        db.SystemSettings.Add(systemSettings);
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var generator = new StubGenerator(context => ValidBatch(context));
+        var handler = CreateHandler(db, generator, Options(minimum: 1, target: 1, maximum: 1));
+
+        var disabled = await handler.Handle(
+            new GenerateExercisesCommand(IsScheduled: true),
+            TestContext.Current.CancellationToken);
+        systemSettings.SetExerciseGenerationEnabled(true, DateTime.UtcNow, Guid.NewGuid());
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        var enabled = await handler.Handle(
+            new GenerateExercisesCommand(IsScheduled: true),
+            TestContext.Current.CancellationToken);
+
+        Assert.True(disabled.IsSuccess);
+        Assert.True(enabled.IsSuccess);
+        Assert.Equal(1, generator.CallCount);
+        Assert.Equal(1, await db.Exercises.CountAsync(TestContext.Current.CancellationToken));
+    }
+
     [Theory]
     [InlineData(20, 20, 40, 50, 0)]
     [InlineData(21, 20, 40, 50, 0)]
@@ -435,6 +495,13 @@ public sealed class ExerciseGenerationTests
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
         return new ApplicationDbContext(options);
+    }
+
+    private static SystemSettings DisabledSystemSettings()
+    {
+        var settings = new SystemSettings();
+        settings.SetExerciseGenerationEnabled(false, DateTime.UtcNow, Guid.NewGuid());
+        return settings;
     }
 
     private static async Task<Lesson> SeedLessonAsync(ApplicationDbContext db, string code, int exerciseCount)

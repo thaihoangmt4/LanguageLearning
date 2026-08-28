@@ -1,6 +1,7 @@
 namespace LanguageLearning.WebApi.Features.Admin.ExerciseGenerationSettings;
 
 public sealed record ExerciseGenerationSettingsResponse(
+    bool Enabled,
     int InitialDelayMinutes,
     int IntervalHours,
     int MinimumExerciseThreshold,
@@ -16,4 +17,5 @@ public sealed record UpdateExerciseGenerationSettingsRequest(
     int MinimumExerciseThreshold,
     int TargetExerciseCount,
     int MaxExercisesPerLessonPerRun,
-    Guid Version);
+    Guid Version,
+    bool Enabled = true);

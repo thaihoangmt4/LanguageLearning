@@ -1,5 +1,6 @@
 using LanguageLearning.Common.Persistence;
 using LanguageLearning.Common.Results;
+using LanguageLearning.Common.Entities.Settings;
 using LanguageLearning.WebApi.Features.ExerciseGeneration;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -24,15 +25,24 @@ public sealed class GetExerciseGenerationSettingsQueryHandler(
                 value => value.Id == ExerciseGenerationSettingsEntity.SingletonId,
                 cancellationToken);
 
+        var enabled = await dbContext.SystemSettings
+            .AsNoTracking()
+            .Where(value => value.Id == SystemSettings.SingletonId)
+            .Select(value => (bool?)value.ExerciseGenerationEnabled)
+            .SingleOrDefaultAsync(cancellationToken)
+            ?? true;
+
         return settings is null
             ? Result<ExerciseGenerationSettingsResponse>.Failure(
                 ExerciseGenerationSettingsErrors.NotFound)
-            : Result<ExerciseGenerationSettingsResponse>.Success(ToResponse(settings));
+            : Result<ExerciseGenerationSettingsResponse>.Success(ToResponse(settings, enabled));
     }
 
     internal static ExerciseGenerationSettingsResponse ToResponse(
-        ExerciseGenerationSettingsEntity settings) =>
+        ExerciseGenerationSettingsEntity settings,
+        bool enabled) =>
         new(
+            enabled,
             settings.InitialDelayMinutes,
             settings.IntervalHours,
             settings.MinimumExerciseThreshold,

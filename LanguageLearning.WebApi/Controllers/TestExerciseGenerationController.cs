@@ -1,4 +1,5 @@
 using LanguageLearning.WebApi.Features.ExerciseGeneration.Commands;
+using LanguageLearning.WebApi.Features.ExerciseGeneration;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -13,10 +14,22 @@ public sealed class TestExerciseGenerationController(ISender sender) : Controlle
 {
     [HttpPost("generate-exercises")]
     [ProducesResponseType(typeof(GenerateExercisesResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<GenerateExercisesResult>> GenerateExercises(CancellationToken cancellationToken)
     {
         var result = await sender.Send(new GenerateExercisesCommand(), cancellationToken);
-        return result.IsSuccess ? Ok(result.Value) : Problem(result.Error);
+        if (result.IsSuccess)
+            return Ok(result.Value);
+
+        return result.Error == ExerciseGenerationSettingsErrors.Disabled
+            ? Conflict(new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "AI exercise generation is disabled.",
+                Detail = "An administrator has disabled AI exercise generation.",
+                Instance = HttpContext.Request.Path
+            })
+            : Problem(result.Error);
     }
 
     [HttpPost("reset-generated-exercises")]
