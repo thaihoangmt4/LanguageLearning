@@ -9,24 +9,28 @@ dotnet ef migrations add MigrationName --startup-project LanguageLearning.WebApi
 
 dotnet ef database update --startup-project LanguageLearning.WebApi/ --project LanguageLearning.Common --context ApplicationDbContext
 
-## Sprint 8 DeepSeek configuration
+## AI Provider Configuration
 
-Exercise generation uses DeepSeek's OpenAI-compatible Chat Completions API. A key is required at application startup and must not be committed.
+Exercise generation uses a provider-neutral `IChatClient` boundary over the OpenAI-compatible Chat Completions protocol. The provider is selected operationally through configuration; changing between compatible providers does not require application code changes or a rebuild.
 
 From `backend/LanguageLearning`, configure local development with:
 
 ```powershell
-dotnet user-secrets set "DeepSeek:ApiKey" "<your-api-key>" --project LanguageLearning.WebApi
+dotnet user-secrets set "Ai:ApiKey" "<your-api-key>" --project LanguageLearning.WebApi
 ```
 
-For Docker or deployment, set:
+Docker and production deployment use:
 
 ```text
-DeepSeek__ApiKey=<secret>
+AI_API_KEY=<secret>
+AI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
+AI_MODEL=gemini-2.5-flash-lite
 ```
 
-The default model is `deepseek-v4-flash`. Change it without recompiling through `DeepSeek__Model`, for example `DeepSeek__Model=deepseek-v4-pro`. Timeout, retry attempts, and output size can be overridden with `DeepSeek__TimeoutSeconds`, `DeepSeek__MaxRetryAttempts`, and `DeepSeek__MaxOutputTokens`.
+Gemini 2.5 Flash-Lite is the current low-cost operational default, not an architectural dependency. For example, OpenAI can be selected with `AI_BASE_URL=https://api.openai.com/v1/` and `AI_MODEL=gpt-5-nano`. OpenRouter and other OpenAI-compatible providers use the same three variables.
 
-DeepSeek usage is an externally billed service. Generation runs automatically on the configured Sprint 8 schedule after the application starts.
+`AI_API_KEY` must remain in environment configuration or user secrets and must never be committed or stored in Admin settings. Missing or invalid provider credentials do not prevent the API from starting; scheduled generation records a failure while existing exercises remain available. Timeout, retry attempts, and output size retain their safe application defaults and can be overridden through `Ai__TimeoutSeconds`, `Ai__MaxRetryAttempts`, and `Ai__MaxOutputTokens` when needed.
+
+AI usage is externally billed. Generation runs automatically on the configured schedule after the application starts.
 
 In the Development environment, authenticated developers can trigger the same command with `POST /api/test/generate-exercises`. Generated exercises that are not referenced by lesson attempts can be removed with `POST /api/test/reset-generated-exercises`. These controllers are not registered outside Development.

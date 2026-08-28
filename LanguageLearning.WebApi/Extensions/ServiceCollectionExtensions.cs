@@ -20,7 +20,7 @@ using LanguageLearning.WebApi.Features.Admin.Logs;
 using LanguageLearning.WebApi.Features.ExerciseEngine;
 using LanguageLearning.WebApi.Features.ExerciseGeneration;
 using LanguageLearning.WebApi.Features.System.DatabaseMigration;
-using LanguageLearning.WebApi.Infrastructure.DeepSeek;
+using LanguageLearning.WebApi.Infrastructure.Ai;
 using LanguageLearning.WebApi.Infrastructure.Logging;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -56,7 +56,7 @@ public static class ServiceCollectionExtensions
         var googleOptions = BuildGoogleOptions(configuration);
         var learningOptions = BuildLearningOptions(configuration);
         var exerciseGenerationOptions = BuildExerciseGenerationOptions(configuration);
-        var deepSeekOptions = BuildDeepSeekOptions(configuration);
+        var aiOptions = BuildAiOptions(configuration);
         var logFileOptions = BuildLogFileOptions(configuration);
         var migrationOptions = configuration.GetSection(MigrationOptions.SectionName)
             .Get<MigrationOptions>() ?? new MigrationOptions();
@@ -84,7 +84,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<LogSanitizer>();
         services.AddSingleton<ILogQueryService, FileLogQueryService>();
         services.AddScoped<ExerciseEngineSeeder>();
-        services.AddDeepSeekExerciseGeneration(deepSeekOptions);
+        services.AddAiExerciseGeneration(aiOptions);
         services.AddHostedService<ExerciseGenerationBackgroundService>();
 
         services.AddPostgres(configuration);
@@ -280,12 +280,9 @@ public static class ServiceCollectionExtensions
         return options;
     }
 
-    private static DeepSeekOptions BuildDeepSeekOptions(IConfiguration configuration)
+    private static AiOptions BuildAiOptions(IConfiguration configuration)
     {
-        var options = configuration.GetSection(DeepSeekOptions.SectionName).Get<DeepSeekOptions>()
-            ?? new DeepSeekOptions();
-        options.Validate();
-        return options;
+        return configuration.GetSection(AiOptions.SectionName).Get<AiOptions>() ?? new AiOptions();
     }
 
     private static LogFileOptions BuildLogFileOptions(IConfiguration configuration)

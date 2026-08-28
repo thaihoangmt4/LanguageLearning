@@ -283,6 +283,9 @@ public sealed class ExerciseGenerationTests
         Assert.Equal(1, result.Value.FailedLessons);
         Assert.Equal(1, result.Value.ProcessedLessons);
         Assert.Equal(1, result.Value.AcceptedExercises);
+        Assert.Equal(0, await db.Exercises.CountAsync(
+            exercise => exercise.LessonId == failedLesson.Id,
+            TestContext.Current.CancellationToken));
     }
 
     [Fact]

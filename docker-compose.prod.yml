@@ -17,7 +17,9 @@ services:
       Cors__AllowedOrigins__0: ${Cors__AllowedOrigins__0:?Cors__AllowedOrigins__0 is required}
       ReverseProxy__KnownProxy: ${ReverseProxy__KnownProxy:?ReverseProxy__KnownProxy is required}
       LogFiles__Directory: ${LogFiles__Directory:-/app/logs}
-      DeepSeek__ApiKey: ${DeepSeek__ApiKey:?DeepSeek__ApiKey is required}
+      Ai__ApiKey: ${AI_API_KEY:-}
+      Ai__BaseUrl: ${AI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai/}
+      Ai__Model: ${AI_MODEL:-gemini-2.5-flash-lite}
       Migration__Enabled: ${Migration__Enabled:-false}
       Migration__ApiKey: ${Migration__ApiKey:?Migration__ApiKey is required}
     ports:

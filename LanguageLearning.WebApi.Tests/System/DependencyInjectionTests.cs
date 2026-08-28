@@ -28,8 +28,7 @@ public sealed class DependencyInjectionTests
             ["Jwt:ExpirationInMinutes"] = "15",
             ["Jwt:RefreshTokenExpirationInDays"] = "30",
             ["Google:ClientId"] = "test-client-id",
-            ["Learning:DefaultCourseCode"] = "FOUNDATIONS",
-            ["DeepSeek:ApiKey"] = "test-api-key"
+            ["Learning:DefaultCourseCode"] = "FOUNDATIONS"
         });
         builder.Host.UseDefaultServiceProvider(options =>
         {

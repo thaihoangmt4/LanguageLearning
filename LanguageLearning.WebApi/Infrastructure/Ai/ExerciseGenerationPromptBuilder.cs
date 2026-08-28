@@ -2,7 +2,7 @@ using System.Text;
 using LanguageLearning.Common.Enums;
 using LanguageLearning.WebApi.Features.ExerciseGeneration;
 
-namespace LanguageLearning.WebApi.Infrastructure.DeepSeek;
+namespace LanguageLearning.WebApi.Infrastructure.Ai;
 
 public sealed record ExerciseGenerationPrompt(string SystemPrompt, string UserPrompt);
 
