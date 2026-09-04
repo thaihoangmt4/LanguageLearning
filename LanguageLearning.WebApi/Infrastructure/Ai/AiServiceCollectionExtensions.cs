@@ -1,4 +1,4 @@
-using LanguageLearning.WebApi.Features.ExerciseGeneration;
+using LanguageLearning.WebApi.Features.LessonGeneration;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Http.Resilience;
 using OpenAI;
@@ -14,13 +14,13 @@ public static class AiServiceCollectionExtensions
 {
     public const string HttpClientName = "ai-openai-compatible";
 
-    public static IServiceCollection AddAiExerciseGeneration(
+    public static IServiceCollection AddAiLessonGeneration(
         this IServiceCollection services,
         AiOptions options)
     {
         services.AddSingleton(options);
-        services.AddSingleton<ExerciseGenerationPromptBuilder>();
-        services.AddTransient<IExerciseGenerator, AiExerciseGenerator>();
+        services.AddSingleton<LessonGenerationPromptBuilder>();
+        services.AddTransient<ILessonGenerator, AiLessonGenerator>();
 
         services.AddHttpClient(HttpClientName, client => client.Timeout = Timeout.InfiniteTimeSpan)
             .AddResilienceHandler("ai", pipeline =>

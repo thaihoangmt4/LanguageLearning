@@ -29,18 +29,13 @@ public sealed class LearningProgressModelTests
     }
 
     [Fact]
-    public void SprintSixAttemptConstraints_RemainConfigured()
+    public void LessonProgress_HasOneRowPerUserAndLesson()
     {
         using var db = Db();
 
-        Assert.Contains(db.Model.FindEntityType(typeof(LessonAttemptExercise))!.GetIndexes(), index =>
+        Assert.Contains(db.Model.FindEntityType(typeof(UserLessonProgress))!.GetIndexes(), index =>
             index.IsUnique && index.Properties.Select(property => property.Name).SequenceEqual(
-                [nameof(LessonAttemptExercise.LessonAttemptId), nameof(LessonAttemptExercise.DisplayOrder)]));
-        Assert.Contains(db.Model.FindEntityType(typeof(ExerciseAttempt))!.GetIndexes(), index =>
-            index.IsUnique && index.Properties.Single().Name == nameof(ExerciseAttempt.SubmissionId));
-        Assert.Contains(db.Model.FindEntityType(typeof(ExerciseAttempt))!.GetIndexes(), index =>
-            index.IsUnique && index.Properties.Select(property => property.Name).SequenceEqual(
-                [nameof(ExerciseAttempt.LessonAttemptExerciseId), nameof(ExerciseAttempt.AttemptNumber)]));
+                [nameof(UserLessonProgress.UserId), nameof(UserLessonProgress.LessonId)]));
     }
 
     private static ApplicationDbContext Db() => new(new DbContextOptionsBuilder<ApplicationDbContext>()

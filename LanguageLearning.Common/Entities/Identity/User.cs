@@ -37,9 +37,8 @@ public sealed class User : BaseEntity, IAuditableEntity
 
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
 
-    public ICollection<LessonAttempt> LessonAttempts { get; set; } = [];
+    public ICollection<UserLessonProgress> LessonProgress { get; set; } = [];
 
     public ICollection<UserCourseAssignment> CourseAssignments { get; set; } = [];
 
-    public ICollection<UserExerciseMistake> ExerciseMistakes { get; set; } = [];
 }

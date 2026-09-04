@@ -30,7 +30,7 @@ public sealed class ExerciseEngineSeederTests
         var firstCounts = await CountsAsync(db);
         await seeder.SeedAsync(TestContext.Current.CancellationToken);
         Assert.Equal(firstCounts, await CountsAsync(db));
-        Assert.Equal((2, 4, 4, 8), firstCounts);
+        Assert.Equal((2, 4, 4, 40), firstCounts);
         Assert.Equal(Enum.GetValues<ExerciseType>().Order(), await db.Exercises.Select(x => x.Type).Distinct().Order().ToArrayAsync(TestContext.Current.CancellationToken));
 
         foreach (var exercise in await db.Exercises.AsNoTracking().ToListAsync(TestContext.Current.CancellationToken))
@@ -39,14 +39,13 @@ public sealed class ExerciseEngineSeederTests
             Assert.True(content.IsSuccess);
             Assert.True(definitions.Validate(exercise.Type, content.Value).IsSuccess);
         }
-        var audioExercise = await db.Exercises.AsNoTracking().SingleAsync(
+        var audioExercise = await db.Exercises.AsNoTracking().OrderBy(x => x.DisplayOrder).FirstAsync(
             x => x.Type == ExerciseType.AudioMatching, TestContext.Current.CancellationToken);
         var audioContent = Assert.IsType<LanguageLearning.Common.ExerciseEngine.Models.AudioMatchingContent>(
             serializer.Deserialize(ExerciseType.AudioMatching, audioExercise.ContentJson).Value);
         Assert.Equal("How are you?", audioContent.PronunciationText);
         Assert.DoesNotContain("audioMediaId", audioExercise.ContentJson, StringComparison.OrdinalIgnoreCase);
-        Assert.Empty(db.LessonAttempts);
-        Assert.Empty(db.UserExerciseMistakes);
+        Assert.Empty(db.UserLessonProgress);
     }
 
     private static async Task<(int Courses, int Units, int Lessons, int Exercises)> CountsAsync(ApplicationDbContext db) =>

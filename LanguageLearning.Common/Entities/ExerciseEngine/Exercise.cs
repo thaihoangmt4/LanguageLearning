@@ -20,6 +20,4 @@ public sealed class Exercise : BaseEntity, IAuditableEntity
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
-    public ICollection<LessonAttemptExercise> LessonAttemptExercises { get; set; } = [];
-    public ICollection<UserExerciseMistake> UserExerciseMistakes { get; set; } = [];
 }

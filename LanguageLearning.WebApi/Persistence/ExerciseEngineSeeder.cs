@@ -4,6 +4,7 @@ using LanguageLearning.Common.Enums;
 using LanguageLearning.Common.ExerciseEngine;
 using LanguageLearning.Common.ExerciseEngine.Models;
 using LanguageLearning.Common.Persistence;
+using LanguageLearning.Common.LearningCatalog;
 using Microsoft.EntityFrameworkCore;
 
 namespace LanguageLearning.WebApi.Persistence;
@@ -74,8 +75,12 @@ public sealed class ExerciseEngineSeeder(
                 Id(406), "English statements normally follow subject, verb, object, then time expression."), cancellationToken);
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        foreach (var lesson in new[] { greetings, sounds, connections, ordering })
+            await PadLessonAsync(lesson, cancellationToken);
+
+        await dbContext.SaveChangesAsync(cancellationToken);
         logger.LogInformation("Exercise Engine development curriculum seeded: {CourseCount} courses, {UnitCount} units, {LessonCount} lessons, {ExerciseCount} exercises",
-            2, 4, 4, 8);
+            2, 4, 4, 4 * LessonRules.RequiredExerciseCount);
     }
 
     private async Task<Course> UpsertCourseAsync(string code, string title, int order, CefrLevel level, CancellationToken token)
@@ -118,6 +123,21 @@ public sealed class ExerciseEngineSeeder(
         if (value is null) { value = new Exercise { Lesson = lesson, DisplayOrder = order }; dbContext.Exercises.Add(value); }
         value.Type = type; value.Title = title; value.Instruction = instruction; value.Difficulty = DifficultyLevel.Beginner;
         value.ContentJson = serialized.Value; value.Version = 1; value.IsRequired = true; value.IsActive = true;
+    }
+
+    private async Task PadLessonAsync(Lesson lesson, CancellationToken token)
+    {
+        var templates = await dbContext.Exercises.Where(x => x.LessonId == lesson.Id)
+            .OrderBy(x => x.DisplayOrder).Take(2).ToListAsync(token);
+        for (var order = templates.Count + 1; order <= LessonRules.RequiredExerciseCount; order++)
+        {
+            var template = templates[(order - 1) % templates.Count];
+            var value = await dbContext.Exercises.SingleOrDefaultAsync(x => x.LessonId == lesson.Id && x.DisplayOrder == order, token);
+            if (value is null) { value = new Exercise { Lesson = lesson, DisplayOrder = order }; dbContext.Exercises.Add(value); }
+            value.Type = template.Type; value.Title = $"{template.Title} ({order})"; value.Instruction = template.Instruction;
+            value.Difficulty = template.Difficulty; value.ContentJson = template.ContentJson; value.Version = 1;
+            value.IsRequired = true; value.IsActive = true;
+        }
     }
 
     private static Guid Id(int suffix) => Guid.Parse($"00000000-0000-0000-0000-{suffix:D12}");

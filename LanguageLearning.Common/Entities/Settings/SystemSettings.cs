@@ -15,7 +15,7 @@ public sealed class SystemSettings : BaseEntity
     }
 
     public SystemLogLevel MinimumLogLevel { get; private set; } = SystemLogLevel.Information;
-    public bool ExerciseGenerationEnabled { get; private set; } = true;
+    public bool LessonGenerationEnabled { get; private set; } = true;
     public DateTime UpdatedAtUtc { get; private set; }
     public Guid? UpdatedByUserId { get; private set; }
     public User? UpdatedByUser { get; private set; }
@@ -30,12 +30,12 @@ public sealed class SystemSettings : BaseEntity
         UpdatedByUserId = updatedByUserId;
     }
 
-    public void SetExerciseGenerationEnabled(
+    public void SetLessonGenerationEnabled(
         bool enabled,
         DateTime updatedAtUtc,
         Guid updatedByUserId)
     {
-        ExerciseGenerationEnabled = enabled;
+        LessonGenerationEnabled = enabled;
         UpdatedAtUtc = updatedAtUtc;
         UpdatedByUserId = updatedByUserId;
     }

@@ -1,7 +1,6 @@
 using LanguageLearning.Common.Entities.Base;
 using LanguageLearning.Common.Entities.Identity;
 using LanguageLearning.Common.Entities.ExerciseEngine;
-using LanguageLearning.Common.Entities.ExerciseGeneration;
 using LanguageLearning.Common.Entities.LearningCatalog;
 using LanguageLearning.Common.Entities.Settings;
 using Microsoft.EntityFrameworkCore;
@@ -31,15 +30,7 @@ public sealed class ApplicationDbContext : DbContext
 
     public DbSet<Exercise> Exercises => Set<Exercise>();
 
-    public DbSet<LessonAttempt> LessonAttempts => Set<LessonAttempt>();
-
-    public DbSet<LessonAttemptExercise> LessonAttemptExercises => Set<LessonAttemptExercise>();
-
-    public DbSet<ExerciseAttempt> ExerciseAttempts => Set<ExerciseAttempt>();
-
-    public DbSet<UserExerciseMistake> UserExerciseMistakes => Set<UserExerciseMistake>();
-
-    public DbSet<ExerciseGenerationSettings> ExerciseGenerationSettings => Set<ExerciseGenerationSettings>();
+    public DbSet<UserLessonProgress> UserLessonProgress => Set<UserLessonProgress>();
 
     public DbSet<SystemSettings> SystemSettings => Set<SystemSettings>();
 

@@ -27,7 +27,7 @@ public sealed class SystemSettingsConfiguration : IEntityTypeConfiguration<Syste
             .IsRequired()
             .HasConversion<string>()
             .HasMaxLength(20);
-        builder.Property(settings => settings.ExerciseGenerationEnabled)
+        builder.Property(settings => settings.LessonGenerationEnabled)
             .IsRequired()
             .HasDefaultValue(true);
         builder.Property(settings => settings.UpdatedAtUtc).IsRequired();
@@ -40,7 +40,7 @@ public sealed class SystemSettingsConfiguration : IEntityTypeConfiguration<Syste
         {
             Id = SystemSettings.SingletonId,
             MinimumLogLevel = SystemLogLevel.Information,
-            ExerciseGenerationEnabled = true,
+            LessonGenerationEnabled = true,
             UpdatedAtUtc = InitialUpdatedAtUtc,
             UpdatedByUserId = (Guid?)null
         });

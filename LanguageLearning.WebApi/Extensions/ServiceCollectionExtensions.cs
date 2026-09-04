@@ -55,7 +55,6 @@ public static class ServiceCollectionExtensions
         var tokenOptions = BuildTokenOptions(configuration);
         var googleOptions = BuildGoogleOptions(configuration);
         var learningOptions = BuildLearningOptions(configuration);
-        var exerciseGenerationOptions = BuildExerciseGenerationOptions(configuration);
         var aiOptions = BuildAiOptions(configuration);
         var logFileOptions = BuildLogFileOptions(configuration);
         var migrationOptions = configuration.GetSection(MigrationOptions.SectionName)
@@ -64,7 +63,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(tokenOptions);
         services.AddSingleton(googleOptions);
         services.AddSingleton(learningOptions);
-        services.AddSingleton(exerciseGenerationOptions);
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton(logFileOptions);
         services.AddSingleton(migrationOptions);
@@ -77,15 +75,11 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IRefreshTokenService, RefreshTokenService>();
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
-        services.AddScoped<ILearningPathResolver, SequentialLearningPathResolver>();
         services.AddScoped<IDefaultCourseResolver, DefaultCourseResolver>();
-        services.AddScoped<ILearningSessionService, LearningSessionService>();
-        services.AddScoped<IExerciseSubmissionService, ExerciseSubmissionService>();
         services.AddSingleton<LogSanitizer>();
         services.AddSingleton<ILogQueryService, FileLogQueryService>();
         services.AddScoped<ExerciseEngineSeeder>();
-        services.AddAiExerciseGeneration(aiOptions);
-        services.AddHostedService<ExerciseGenerationBackgroundService>();
+        services.AddAiLessonGeneration(aiOptions);
 
         services.AddPostgres(configuration);
         services.AddReverseProxyForwardedHeaders(configuration, environment);
@@ -100,8 +94,6 @@ public static class ServiceCollectionExtensions
         services.AddGlobalExceptionHandler();
 
         services.AddControllers()
-            .ConfigureApplicationPartManager(manager =>
-                manager.FeatureProviders.Add(new DevelopmentControllerFeatureProvider(environment)))
             .AddJsonOptions(options =>
                 options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
         services.AddProblemDetails();
@@ -269,14 +261,6 @@ public static class ServiceCollectionExtensions
             ?? throw new InvalidOperationException($"Missing '{LearningOptions.SectionName}' configuration section.");
         if (string.IsNullOrWhiteSpace(options.DefaultCourseCode))
             throw new InvalidOperationException($"Missing '{LearningOptions.SectionName}:DefaultCourseCode' configuration value.");
-        return options;
-    }
-
-    private static ExerciseGenerationOptions BuildExerciseGenerationOptions(IConfiguration configuration)
-    {
-        var options = configuration.GetSection(ExerciseGenerationOptions.SectionName)
-            .Get<ExerciseGenerationOptions>() ?? new ExerciseGenerationOptions();
-        options.Validate();
         return options;
     }
 
